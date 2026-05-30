@@ -101,6 +101,8 @@ export interface Agent {
   latitude?: number;
   longitude?: number;
   lastSeen?: string;
+  visitedToday?: number;
+  totalStops?: number;
 }
 
 export interface Territory {

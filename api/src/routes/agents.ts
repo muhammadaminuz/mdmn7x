@@ -7,7 +7,16 @@ import { routeStops } from "../data/routes";
 const router = Router();
 
 router.get("/", authenticate, (_req: AuthRequest, res: Response) => {
-  res.json(agents);
+  const today = new Date().toISOString().split("T")[0];
+  const enriched = agents.map((a) => {
+    const todayStops = routeStops.filter((s) => s.agentId === a.id && s.date === today);
+    return {
+      ...a,
+      visitedToday: todayStops.filter((s) => s.status === "VISITED").length,
+      totalStops: todayStops.length,
+    };
+  });
+  res.json(enriched);
 });
 
 router.get("/live-locations", authenticate, (_req: AuthRequest, res: Response) => {

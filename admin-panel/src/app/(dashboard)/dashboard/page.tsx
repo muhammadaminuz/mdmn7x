@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   TrendingUp, TrendingDown, DollarSign, Users, UserCheck,
-  Package, Map, ShoppingCart, AlertCircle, ArrowUpRight, Clock
+  Package, Map, ShoppingCart, AlertCircle, ArrowUpRight, Clock,
+  Trophy, Medal
 } from "lucide-react";
 import api from "@/lib/api";
 import { formatCurrency, formatDate, timeAgo } from "@/lib/formatters";
@@ -15,11 +16,25 @@ const OrderStatusChart = dynamic(() => import("@/components/dashboard/OrderStatu
 const AgentPerformanceChart = dynamic(() => import("@/components/dashboard/AgentPerformanceChart"), { ssr: false });
 const WeeklyOrdersChart = dynamic(() => import("@/components/dashboard/WeeklyOrdersChart"), { ssr: false });
 
+const periodTabs = [
+  { label: "Bugun", value: "today" },
+  { label: "Bu hafta", value: "week" },
+  { label: "Bu oy", value: "month" },
+  { label: "Yil", value: "year" },
+];
+
+const rankStyles = [
+  { bg: "bg-amber-400", text: "text-amber-900", icon: Trophy },
+  { bg: "bg-gray-300", text: "text-gray-700", icon: Medal },
+  { bg: "bg-orange-400", text: "text-orange-900", icon: Medal },
+];
+
 export default function DashboardPage() {
   const [kpis, setKpis] = useState<KpiData | null>(null);
   const [charts, setCharts] = useState<any>(null);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState("month");
 
   useEffect(() => {
     async function loadData() {
@@ -39,7 +54,7 @@ export default function DashboardPage() {
       }
     }
     loadData();
-  }, []);
+  }, [period]);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -132,6 +147,29 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Period filter tabs */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Dashboard</h2>
+          <p className="text-sm text-gray-500 mt-0.5">{formatDate(new Date().toISOString())} holatiga ko'ra</p>
+        </div>
+        <div className="flex items-center bg-gray-100 rounded-xl p-1 gap-0.5">
+          {periodTabs.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setPeriod(tab.value)}
+              className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                period === tab.value
+                  ? "bg-white text-brand-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {kpiCards.map((card) => (
@@ -155,7 +193,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900">Oylik Savdo Trenди</h3>
+            <h3 className="font-semibold text-gray-900">Oylik Savdo Trendi</h3>
             <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">12 oy</span>
           </div>
           {charts && <SalesChart data={charts.monthlySales} />}
@@ -225,32 +263,42 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Top Agents */}
+        {/* Top Agents leaderboard */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <h3 className="font-semibold text-gray-900">Top Agentlar</h3>
             <a href="/agents" className="text-xs text-brand-600 hover:underline">Ko'proq</a>
           </div>
           <div className="p-4 space-y-3">
-            {charts?.agentPerformance?.map((agent: any, i: number) => (
-              <div key={agent.agentName} className="flex items-center gap-3">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? "bg-amber-100 text-amber-700" : i === 1 ? "bg-gray-100 text-gray-600" : "bg-orange-50 text-orange-600"}`}>
-                  {i + 1}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-gray-900 truncate">{agent.agentName}</div>
-                  <div className="flex items-center gap-2 mt-0.5">
+            {charts?.agentPerformance?.map((agent: any, i: number) => {
+              const rank = rankStyles[i] || { bg: "bg-gray-100", text: "text-gray-600", icon: null };
+              const RankIcon = rank.icon;
+              return (
+                <div key={agent.agentName} className="flex items-center gap-3">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${rank.bg}`}>
+                    {i < 3 && RankIcon ? (
+                      <RankIcon className={`w-3.5 h-3.5 ${rank.text}`} />
+                    ) : (
+                      <span className={`text-xs font-bold ${rank.text}`}>{i + 1}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <div className="text-sm font-medium text-gray-900 truncate">{agent.agentName}</div>
+                      <span className={`text-xs font-bold ml-2 flex-shrink-0 ${agent.performance >= 90 ? "text-green-600" : agent.performance >= 75 ? "text-blue-600" : "text-amber-600"}`}>
+                        {agent.performance}%
+                      </span>
+                    </div>
                     <div className="flex-1 bg-gray-100 rounded-full h-1.5">
                       <div
-                        className="bg-brand-500 h-1.5 rounded-full"
+                        className={`h-1.5 rounded-full ${agent.performance >= 90 ? "bg-green-500" : agent.performance >= 75 ? "bg-blue-500" : "bg-amber-400"}`}
                         style={{ width: `${agent.performance}%` }}
                       />
                     </div>
-                    <span className="text-xs font-medium text-gray-600 w-10 text-right">{agent.performance}%</span>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

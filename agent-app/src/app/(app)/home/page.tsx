@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
-import { TrendingUp, Users, CheckCircle2, DollarSign, MapPin, ShoppingCart, Bell, ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { TrendingUp, Users, DollarSign, MapPin, ShoppingCart, Bell, ChevronRight, Camera, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import api from "@/lib/api";
-import { formatCurrency, formatCurrencyFull, timeAgo } from "@/lib/formatters";
+import { formatCurrency, formatCurrencyFull } from "@/lib/formatters";
 
 export default function HomePage() {
   const [user, setUser] = useState<any>(null);
@@ -11,6 +11,8 @@ export default function HomePage() {
   const [route, setRoute] = useState<any>(null);
   const [kpis, setKpis] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [checkedIn, setCheckedIn] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem("agent_user");
@@ -44,6 +46,19 @@ export default function HomePage() {
   const performance = agent?.performance || 0;
   const visitCompletion = route ? Math.round((route.visited / Math.max(route.total, 1)) * 100) : 0;
 
+  const stats = [
+    { label: "Bugungi savdo", value: kpis ? formatCurrency(kpis.dailySales) + " so'm" : "—", icon: TrendingUp, color: "text-primary-600", bg: "bg-primary-50" },
+    { label: "Buyurtmalar", value: kpis ? kpis.todayOrders + " ta" : "—", icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Tashriflar", value: route ? `${route.visited}/${route.total}` : "—", icon: Users, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Inkassatsiya", value: kpis ? formatCurrency(kpis.collectionAmount) + " so'm" : "—", icon: DollarSign, color: "text-amber-600", bg: "bg-amber-50" },
+  ];
+
+  function handleCheckIn(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files?.[0]) {
+      setCheckedIn(true);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -54,9 +69,9 @@ export default function HomePage() {
             <Bell className="w-4 h-4 text-white" />
           </button>
         </div>
-        <h1 className="text-2xl font-bold text-white mb-4">{agent?.fullName || user?.fullName || "Agent"} 👋</h1>
+        <h1 className="text-2xl font-bold text-white mb-4">{agent?.fullName || user?.fullName || "Agent"}</h1>
 
-        {/* Today's target */}
+        {/* Monthly target */}
         <div className="bg-white/15 backdrop-blur rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">
             <span className="text-white/80 text-sm font-medium">Oylik maqsad</span>
@@ -73,22 +88,49 @@ export default function HomePage() {
       </div>
 
       <div className="px-4 -mt-2 space-y-4 pb-4">
-        {/* Quick stats */}
-        <div className="grid grid-cols-2 gap-3 pt-4">
-          {[
-            { label: "Bugungi savdo", value: kpis ? formatCurrency(kpis.dailySales) + " so'm" : "—", icon: TrendingUp, color: "text-primary-600", bg: "bg-primary-50" },
-            { label: "Bugungi buyurtmalar", value: kpis ? kpis.todayOrders + " ta" : "—", icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50" },
-            { label: "Tashriflar", value: route ? `${route.visited}/${route.total}` : "—", icon: Users, color: "text-purple-600", bg: "bg-purple-50" },
-            { label: "Inkassatsiya", value: kpis ? formatCurrency(kpis.collectionAmount) + " so'm" : "—", icon: DollarSign, color: "text-amber-600", bg: "bg-amber-50" },
-          ].map((stat) => (
-            <div key={stat.label} className="mobile-card p-4">
+        {/* Horizontally scrollable stat cards */}
+        <div className="flex gap-3 overflow-x-auto pb-1 pt-4 -mx-4 px-4 scrollbar-none snap-x snap-mandatory">
+          {stats.map((stat) => (
+            <div key={stat.label} className="mobile-card p-4 flex-shrink-0 w-36 snap-start">
               <div className={`w-9 h-9 ${stat.bg} rounded-xl flex items-center justify-center mb-3`}>
                 <stat.icon className={`w-4 h-4 ${stat.color}`} />
               </div>
-              <div className="text-lg font-bold text-gray-900">{stat.value}</div>
-              <div className="text-xs text-gray-400 mt-0.5">{stat.label}</div>
+              <div className="text-base font-bold text-gray-900 leading-tight">{stat.value}</div>
+              <div className="text-xs text-gray-400 mt-1">{stat.label}</div>
             </div>
           ))}
+        </div>
+
+        {/* Check-in card */}
+        <div className={`mobile-card p-4 ${checkedIn ? "border-2 border-primary-400" : ""}`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-gray-900 text-sm">Kunni boshlash</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {checkedIn ? "✓ Muvaffaqiyatli belgilandi" : "Foto tekshiruv orqali kirish"}
+              </p>
+            </div>
+            {checkedIn ? (
+              <div className="w-12 h-12 bg-primary-500 rounded-2xl flex items-center justify-center">
+                <CheckCircle2 className="w-6 h-6 text-white" />
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-12 h-12 bg-primary-50 rounded-2xl flex items-center justify-center active:bg-primary-100 transition-colors"
+              >
+                <Camera className="w-6 h-6 text-primary-600" />
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleCheckIn}
+          />
         </div>
 
         {/* Route progress */}

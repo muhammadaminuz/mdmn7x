@@ -8,21 +8,46 @@ import {
   Bell, Settings, Package2, ChevronLeft, LogOut
 } from "lucide-react";
 
-const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Buyurtmalar", href: "/orders", icon: ShoppingCart },
-  { label: "Mijozlar", href: "/customers", icon: Users },
-  { label: "Mahsulotlar", href: "/products", icon: Package },
-  { label: "Omborlar", href: "/warehouses", icon: Warehouse },
-  { label: "Inventar", href: "/inventory", icon: BoxesIcon },
-  { label: "Agentlar", href: "/agents", icon: UserCheck },
-  { label: "Hududlar", href: "/territories", icon: MapPin },
-  { label: "To'lovlar", href: "/payments", icon: CreditCard },
-  { label: "Hisobotlar", href: "/reports", icon: BarChart3 },
-  { label: "Analitika", href: "/analytics", icon: TrendingUp },
-  { label: "CRM", href: "/crm", icon: HeartHandshake },
-  { label: "Bildirishnomalar", href: "/notifications", icon: Bell },
-  { label: "Sozlamalar", href: "/settings", icon: Settings },
+const navGroups = [
+  {
+    label: "Asosiy",
+    items: [
+      { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+      { label: "Buyurtmalar", href: "/orders", icon: ShoppingCart, badge: 3 },
+      { label: "Mijozlar", href: "/customers", icon: Users },
+    ],
+  },
+  {
+    label: "Ombor",
+    items: [
+      { label: "Mahsulotlar", href: "/products", icon: Package },
+      { label: "Omborlar", href: "/warehouses", icon: Warehouse },
+      { label: "Inventar", href: "/inventory", icon: BoxesIcon },
+    ],
+  },
+  {
+    label: "Savdo",
+    items: [
+      { label: "Agentlar", href: "/agents", icon: UserCheck },
+      { label: "Hududlar", href: "/territories", icon: MapPin },
+      { label: "To'lovlar", href: "/payments", icon: CreditCard },
+    ],
+  },
+  {
+    label: "Tahlil",
+    items: [
+      { label: "Hisobotlar", href: "/reports", icon: BarChart3 },
+      { label: "Analitika", href: "/analytics", icon: TrendingUp },
+      { label: "CRM", href: "/crm", icon: HeartHandshake },
+    ],
+  },
+  {
+    label: "Tizim",
+    items: [
+      { label: "Bildirishnomalar", href: "/notifications", icon: Bell, badge: 4 },
+      { label: "Sozlamalar", href: "/settings", icon: Settings },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -67,25 +92,46 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-        {navItems.map(({ label, href, icon: Icon }) => {
-          const isActive = pathname === href || pathname.startsWith(href + "/");
-          return (
-            <Link
-              key={href}
-              href={href}
-              title={collapsed ? label : undefined}
-              className={clsx(
-                "sidebar-item group",
-                isActive ? "sidebar-item-active" : "sidebar-item-inactive",
-                collapsed ? "justify-center px-2" : ""
-              )}
-            >
-              <Icon className="w-4 h-4 flex-shrink-0" />
-              {!collapsed && <span className="truncate">{label}</span>}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            {!collapsed && (
+              <div className="px-3 mb-1">
+                <span className="text-[10px] font-semibold tracking-widest text-slate-500 uppercase">{group.label}</span>
+              </div>
+            )}
+            {collapsed && <div className="border-t border-slate-700/40 my-2" />}
+            <div className="space-y-0.5">
+              {group.items.map(({ label, href, icon: Icon, badge }) => {
+                const isActive = pathname === href || pathname.startsWith(href + "/");
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    title={collapsed ? label : undefined}
+                    className={clsx(
+                      "sidebar-item group relative",
+                      isActive ? "sidebar-item-active" : "sidebar-item-inactive",
+                      collapsed ? "justify-center px-2" : ""
+                    )}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    {!collapsed && <span className="truncate flex-1">{label}</span>}
+                    {badge && badge > 0 && (
+                      <span className={clsx(
+                        "flex-shrink-0 text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none",
+                        isActive ? "bg-white/20 text-white" : "bg-red-500 text-white",
+                        collapsed ? "absolute top-1 right-1 w-4 h-4 flex items-center justify-center px-0" : ""
+                      )}>
+                        {badge}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Footer */}
