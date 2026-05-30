@@ -60,6 +60,14 @@ app.use("/api/gps", gpsRouter);
 
 app.use(errorHandler);
 
+// Prevent a single bad request from crashing the whole server.
+process.on("unhandledRejection", (reason) => {
+  console.error("⚠️  Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("⚠️  Uncaught exception:", err);
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 FMCG Distribution ERP API running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
