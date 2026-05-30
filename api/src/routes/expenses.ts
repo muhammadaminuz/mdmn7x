@@ -85,7 +85,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response) => {
       amount: Number(amount),
       description,
       method,
-      paidById: req.user?.id ?? null,
+      paidById: req.user?.userId ?? null,
     },
     include: { paidBy: { select: { fullName: true } } },
   });

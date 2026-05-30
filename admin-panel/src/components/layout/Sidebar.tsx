@@ -5,7 +5,8 @@ import { clsx } from "clsx";
 import {
   LayoutDashboard, ShoppingCart, Users, Package, Warehouse, BoxesIcon,
   UserCheck, MapPin, CreditCard, BarChart3, TrendingUp, HeartHandshake,
-  Bell, Settings, Package2, ChevronLeft, LogOut
+  Bell, Settings, Package2, ChevronLeft, LogOut,
+  Truck, ArrowLeftRight, RotateCcw, Wallet, Receipt, Gift, Map
 } from "lucide-react";
 
 const navGroups = [
@@ -23,6 +24,7 @@ const navGroups = [
       { label: "Mahsulotlar", href: "/products", icon: Package },
       { label: "Omborlar", href: "/warehouses", icon: Warehouse },
       { label: "Inventar", href: "/inventory", icon: BoxesIcon },
+      { label: "Kirim/Chiqim", href: "/stock-movements", icon: ArrowLeftRight },
     ],
   },
   {
@@ -31,6 +33,16 @@ const navGroups = [
       { label: "Agentlar", href: "/agents", icon: UserCheck },
       { label: "Hududlar", href: "/territories", icon: MapPin },
       { label: "To'lovlar", href: "/payments", icon: CreditCard },
+      { label: "Qaytarishlar", href: "/returns", icon: RotateCcw },
+      { label: "Ta'minotchilar", href: "/suppliers", icon: Truck },
+    ],
+  },
+  {
+    label: "Moliya",
+    items: [
+      { label: "Kassa", href: "/cash", icon: Wallet },
+      { label: "Xarajatlar", href: "/expenses", icon: Receipt },
+      { label: "Bonus", href: "/bonuses", icon: Gift },
     ],
   },
   {
@@ -39,6 +51,12 @@ const navGroups = [
       { label: "Hisobotlar", href: "/reports", icon: BarChart3 },
       { label: "Analitika", href: "/analytics", icon: TrendingUp },
       { label: "CRM", href: "/crm", icon: HeartHandshake },
+    ],
+  },
+  {
+    label: "GPS",
+    items: [
+      { label: "GPS Xarita", href: "/gps", icon: Map },
     ],
   },
   {
