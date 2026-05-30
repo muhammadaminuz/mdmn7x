@@ -76,97 +76,143 @@ export default function OrdersPage() {
       : orders;
 
     const wb = XLSX.utils.book_new();
-    const now = new Date().toLocaleDateString("uz-UZ");
-    const companyName = "FMCG Distribution";
-    const companyDetails = "Toshkent sh. · Tel: +998 (90) 000-00-00 · STIR: 000000000";
+    const nowStr = new Date().toLocaleDateString("uz-UZ");
+    const COMPANY = "FMCG Distribution MChJ";
+    const COMPANY_ADDR = "Toshkent sh., Yunusobod tumani";
+    const COMPANY_INN = "STIR: 123456789";
+    const COMPANY_PHONE = "Tel: +998 90 000-00-00";
 
-    // ===== VARAQ 1: JAMI HISOBOT (summary, one row per order) =====
+    const fmt = (n: number) => Number(n || 0).toLocaleString("uz-UZ");
+
+    // ===== VARAQ 1: JAMI REESTR =====
     const s1: any[][] = [];
-    s1.push([`${companyName} — Buyurtmalar hisoboti`]);
-    s1.push([`Davr: ${dateFrom} — ${dateTo}`, "", "", `Jami buyurtmalar: ${targetOrders.length} ta`]);
+    s1.push([`${COMPANY}`]);
+    s1.push([`BUYURTMALAR REESTRI`]);
+    s1.push([`Davr: ${dateFrom} dan ${dateTo} gacha`, "", "", "", `Chop etilgan: ${nowStr}`]);
     s1.push([]);
-    s1.push(["№", "Buyurtma №", "Sana", "Mijoz", "Agent", "Holat", "Mahsulot turi", "Chegirma (so'm)", "Jami summa (so'm)"]);
+    s1.push(["№", "Hisob-faktura №", "Sana", "Mijoz", "Agent", "Holat", "Mahsulotlar soni", "Chegirma (so'm)", "Jami summa (so'm)"]);
 
     let grandTotal = 0;
-    let totalDiscount = 0;
+    let grandDiscount = 0;
     targetOrders.forEach((order, idx) => {
-      const items = order.items || [];
-      const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString("uz-UZ") : now;
-      grandTotal += order.total || 0;
-      totalDiscount += order.discount || 0;
+      const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString("uz-UZ") : nowStr;
+      grandTotal += Number(order.total || 0);
+      grandDiscount += Number(order.discount || 0);
+      const statusMap: Record<string, string> = {
+        DRAFT: "Qoralama", PENDING: "Kutilmoqda", APPROVED: "Tasdiqlandi",
+        DELIVERED: "Yetkazildi", CANCELLED: "Bekor qilingan",
+      };
       s1.push([
-        idx + 1,
-        order.orderNo,
-        orderDate,
-        order.customerName,
-        order.agentName,
-        order.status,
-        items.length,
-        order.discount || 0,
-        order.total || 0,
+        idx + 1, order.orderNo, orderDate, order.customerName,
+        order.agentName, statusMap[order.status] || order.status,
+        (order.items || []).length, Number(order.discount || 0), Number(order.total || 0),
       ]);
     });
     s1.push([]);
-    s1.push(["", "", "", "", "", "", "JAMI:", totalDiscount, grandTotal]);
+    s1.push(["", "", "", "", "", "", "JAMI:", grandDiscount, grandTotal]);
 
     const ws1 = XLSX.utils.aoa_to_sheet(s1);
-    ws1["!cols"] = [{ wch: 4 }, { wch: 16 }, { wch: 12 }, { wch: 26 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 18 }];
+    ws1["!cols"] = [
+      { wch: 4 }, { wch: 18 }, { wch: 12 }, { wch: 28 }, { wch: 20 },
+      { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 20 },
+    ];
     ws1["!merges"] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } },
     ];
-    XLSX.utils.book_append_sheet(wb, ws1, "Hisobot");
+    XLSX.utils.book_append_sheet(wb, ws1, "Reestr");
 
-    // ===== VARAQ 2: ALOHIDA НАКЛАДНАЯ (printable invoice per customer) =====
+    // ===== VARAQ 2: TOVAR HISOB-FAKTURA (har bir buyurtma uchun alohida) =====
     const s2: any[][] = [];
-    const merges: any[] = [];
-    const COLS = 6; // 0..5
+    const merges2: any[] = [];
+    const C = 7; // columns 0..6: №, Nomi, Birlik, Miqdor, Narx, Summa, (empty)
 
-    const fullRow = (text: string) => { merges.push({ s: { r: s2.length, c: 0 }, e: { r: s2.length, c: COLS - 1 } }); s2.push([text]); };
+    const merge = (text: string | number, fromC = 0, toC = C - 1) => {
+      if (fromC < toC) merges2.push({ s: { r: s2.length, c: fromC }, e: { r: s2.length, c: toC } });
+      const row = Array(C).fill("");
+      row[fromC] = text;
+      s2.push(row);
+    };
 
     targetOrders.forEach((order, oi) => {
       const items = order.items || [];
-      const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString("uz-UZ") : now;
-      const subtotal = items.reduce((sum: number, it: any) => sum + (it.total || 0), 0);
+      const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString("uz-UZ") : nowStr;
+      const subtotal = items.reduce((sum: number, it: any) => sum + Number(it.total || 0), 0);
 
-      // Header box
-      fullRow(`НАКЛАДНАЯ (Hisob-faktura) № ${order.orderNo}`);
-      fullRow(`Sana: ${orderDate}`);
-      s2.push([]);
+      // ── Title ──
+      s2.push(Array(C).fill(""));
+      merge(`TOVAR HISOB-FAKTURASI`);
+      merge(`№ ${order.orderNo}   Sana: ${orderDate}`);
+      s2.push(Array(C).fill(""));
 
-      // Supplier / Receiver
-      s2.push(["Yetkazib beruvchi (Topshiruvchi):", companyName, "", "Oluvchi (Qabul qiluvchi):", order.customerName, ""]);
-      s2.push(["", companyDetails, "", "Agent:", order.agentName, ""]);
-      s2.push([]);
+      // ── Sender / Receiver block ──
+      const r1 = Array(C).fill("");
+      r1[0] = "Yetkazib beruvchi:"; r1[1] = COMPANY; r1[4] = "Sotib oluvchi:"; r1[5] = order.customerName;
+      s2.push(r1);
+      const r2 = Array(C).fill("");
+      r2[1] = COMPANY_ADDR; r2[5] = `Agent: ${order.agentName}`;
+      s2.push(r2);
+      const r3 = Array(C).fill("");
+      r3[1] = `${COMPANY_INN}  ${COMPANY_PHONE}`;
+      s2.push(r3);
+      s2.push(Array(C).fill(""));
 
-      // Items table header
-      s2.push(["№", "Mahsulot nomi", "Birlik", "Miqdor", "Narx (so'm)", "Summa (so'm)"]);
+      // ── Table header ──
+      s2.push(["№", "Tovar nomi", "O'lchov birligi", "Miqdori", "Narxi (so'm)", "Summasi (so'm)", ""]);
+
+      // ── Items ──
       items.forEach((item: any, i: number) => {
-        s2.push([i + 1, item.productName, item.unit || "dona", item.quantity, item.price, item.total]);
+        s2.push([i + 1, item.productName, "dona", item.quantity, item.price, item.total, ""]);
       });
 
-      // Totals
-      s2.push(["", "", "", "", "Jami:", subtotal]);
-      if (order.discount) s2.push(["", "", "", "", "Chegirma:", -order.discount]);
-      s2.push(["", "", "", "", "TO'LOV SUMMASI:", order.total]);
-      s2.push([]);
+      // ── Totals ──
+      s2.push(Array(C).fill(""));
+      const tRow = Array(C).fill("");
+      tRow[3] = "Jami miqdor:"; tRow[4] = `${items.reduce((s: number, it: any) => s + (it.quantity || 0), 0)} dona`;
+      s2.push(tRow);
 
-      // Signatures
-      s2.push(["Topshirdi: ___________________", "", "", "Qabul qildi: ___________________", "", ""]);
-      s2.push(["M.O.", "", "", "M.O.", "", ""]);
-      s2.push([]);
+      const totRow1 = Array(C).fill(""); totRow1[4] = "Jami:"; totRow1[5] = subtotal; s2.push(totRow1);
+      if (Number(order.discount || 0) > 0) {
+        const discRow = Array(C).fill(""); discRow[4] = "Chegirma:"; discRow[5] = -Number(order.discount); s2.push(discRow);
+      }
+      const payRow = Array(C).fill(""); payRow[4] = "TO'LOV SUMMASI:"; payRow[5] = order.total; s2.push(payRow);
+
+      // Total in text
+      merge(`Jami so'mda: ${fmt(Number(order.total || 0))} so'm`, 0, C - 1);
+      s2.push(Array(C).fill(""));
+
+      // ── Signatures ──
+      merge("", 0, C - 1);
+      const sig1 = Array(C).fill("");
+      sig1[0] = "Tovarni topshirdi:"; sig1[1] = "______________________"; sig1[1 + 1] = "";
+      sig1[4] = "Tovarni qabul qildi:"; sig1[5] = "______________________";
+      s2.push(sig1);
+      const sig2 = Array(C).fill("");
+      sig2[0] = "Lavozimi: ____________"; sig2[4] = "Lavozimi: ____________";
+      s2.push(sig2);
+      const sig3 = Array(C).fill("");
+      sig3[0] = "F.I.SH.:  ____________"; sig3[4] = "F.I.SH.:  ____________";
+      s2.push(sig3);
+      const sig4 = Array(C).fill("");
+      sig4[0] = "M.O."; sig4[4] = "M.O.";
+      s2.push(sig4);
+      s2.push(Array(C).fill(""));
+
       if (oi < targetOrders.length - 1) {
-        fullRow("══════════════════════════════════════════════════════════════════");
-        s2.push([]);
+        merge("─".repeat(80));
+        s2.push(Array(C).fill(""));
       }
     });
 
     const ws2 = XLSX.utils.aoa_to_sheet(s2);
-    ws2["!cols"] = [{ wch: 6 }, { wch: 34 }, { wch: 8 }, { wch: 10 }, { wch: 16 }, { wch: 18 }];
-    ws2["!merges"] = merges;
-    XLSX.utils.book_append_sheet(wb, ws2, "Накладная");
+    ws2["!cols"] = [
+      { wch: 4 }, { wch: 32 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 2 },
+    ];
+    ws2["!merges"] = merges2;
+    XLSX.utils.book_append_sheet(wb, ws2, "Hisob-faktura");
 
-    XLSX.writeFile(wb, `nakladnaya_${dateFrom}_${dateTo}.xlsx`);
+    XLSX.writeFile(wb, `hisob_faktura_${dateFrom}_${dateTo}.xlsx`);
   }
 
   const totalPages = Math.ceil(total / limit);

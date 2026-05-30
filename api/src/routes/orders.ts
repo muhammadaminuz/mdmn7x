@@ -109,14 +109,16 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response) => {
     const total = subtotal - Number(discount || 0);
     const year = new Date().getFullYear();
 
-    // Collision-safe order number: take the highest existing number for this year.
-    const last = await prisma.order.findFirst({
+    // Find true max sequence for this year (findFirst with desc is lexicographic, not numeric).
+    const yearOrders = await prisma.order.findMany({
       where: { orderNo: { startsWith: `ORD-${year}-` } },
-      orderBy: { orderNo: "desc" },
       select: { orderNo: true },
     });
-    const lastSeq = last ? parseInt(last.orderNo.split("-").pop() || "0", 10) : 0;
-    const orderNo = `ORD-${year}-${String(lastSeq + 1).padStart(4, "0")}`;
+    const maxSeq = yearOrders.reduce((max, o) => {
+      const n = parseInt(o.orderNo.slice(-4), 10);
+      return isNaN(n) ? max : Math.max(max, n);
+    }, 0);
+    const orderNo = `ORD-${year}-${String(maxSeq + 1).padStart(4, "0")}`;
 
     const order = await prisma.order.create({
       data: {
