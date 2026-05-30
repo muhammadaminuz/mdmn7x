@@ -42,8 +42,8 @@ export default function Topbar({ title }: TopbarProps) {
     const stored = localStorage.getItem("erp_user");
     if (stored) setUser(JSON.parse(stored));
     api.get("/notifications").then((r) => {
-      setNotifications(r.data.slice(0, 5));
-      setUnread(r.data.filter((n: any) => !n.isRead).length);
+      setNotifications((r.data.items ?? r.data).slice(0, 5));
+      setUnread(r.data.unreadCount ?? r.data.filter?.((n: any) => !n.isRead).length ?? 0);
     }).catch(() => {});
   }, []);
 

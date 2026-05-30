@@ -1,51 +1,108 @@
 import { Router, Response } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
-import { agents } from "../data/agents";
-import { ordersStore } from "../data/orders";
-import { routeStops } from "../data/routes";
+import prisma from "../lib/prisma";
 
 const router = Router();
 
-router.get("/", authenticate, (_req: AuthRequest, res: Response) => {
-  const today = new Date().toISOString().split("T")[0];
-  const enriched = agents.map((a) => {
-    const todayStops = routeStops.filter((s) => s.agentId === a.id && s.date === today);
-    return {
-      ...a,
-      visitedToday: todayStops.filter((s) => s.status === "VISITED").length,
-      totalStops: todayStops.length,
-    };
-  });
-  res.json(enriched);
-});
-
-router.get("/live-locations", authenticate, (_req: AuthRequest, res: Response) => {
-  const liveAgents = agents.filter((a) => a.isActive && a.latitude).map((a) => ({
+function mapAgent(a: any, todayStops?: any[]) {
+  const stops = todayStops ?? a.routeStops ?? [];
+  const visitedToday = stops.filter((s: any) => s.status === "VISITED").length;
+  const totalStops = stops.length;
+  return {
     id: a.id,
     fullName: a.fullName,
+    phone: a.phone,
+    email: a.email,
+    territoryId: a.territoryId,
+    territoryName: a.territory?.name ?? "",
+    monthlyTarget: Number(a.monthlyTarget),
+    currentSales: Number(a.currentSales),
+    performance: a.performance,
+    customersCount: a._count?.customers ?? 0,
+    isActive: a.isActive,
     latitude: a.latitude,
     longitude: a.longitude,
-    lastSeen: a.lastSeen,
-    performance: a.performance,
-    territoryName: a.territoryName,
-  }));
-  res.json(liveAgents);
+    lastSeen: a.lastSeen?.toISOString() ?? null,
+    visitedToday,
+    totalStops,
+  };
+}
+
+router.get("/", authenticate, async (_req: AuthRequest, res: Response) => {
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+  const agents = await prisma.agent.findMany({
+    include: {
+      territory: { select: { name: true } },
+      _count: { select: { customers: true } },
+      routeStops: { where: { date: { gte: todayStart, lt: tomorrowStart } }, select: { status: true } },
+    },
+    orderBy: { performance: "desc" },
+  });
+  res.json(agents.map(a => mapAgent(a)));
 });
 
-router.get("/:id", authenticate, (req: AuthRequest, res: Response) => {
-  const agent = agents.find((a) => a.id === Number(req.params.id));
+router.get("/live-locations", authenticate, async (_req: AuthRequest, res: Response) => {
+  const agents = await prisma.agent.findMany({
+    where: { isActive: true, latitude: { not: null } },
+    include: { territory: { select: { name: true } } },
+  });
+  res.json(agents.map(a => ({ id: a.id, fullName: a.fullName, latitude: a.latitude, longitude: a.longitude, lastSeen: a.lastSeen?.toISOString() ?? null, performance: a.performance, territoryName: a.territory?.name ?? "" })));
+});
+
+router.get("/:id", authenticate, async (req: AuthRequest, res: Response) => {
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+  const agent = await prisma.agent.findUnique({
+    where: { id: Number(req.params.id) },
+    include: {
+      territory: { select: { name: true } },
+      _count: { select: { customers: true } },
+      orders: { orderBy: { createdAt: "desc" }, take: 20, include: { customer: { select: { companyName: true } } } },
+      routeStops: {
+        where: { date: { gte: todayStart, lt: tomorrowStart } },
+        include: { customer: { select: { companyName: true, address: true, latitude: true, longitude: true } } },
+        orderBy: { order: "asc" },
+      },
+    },
+  });
   if (!agent) return res.status(404).json({ error: "Agent not found" });
-  const orders = ordersStore.filter((o) => o.agentId === agent.id).slice(0, 20);
-  const today = new Date().toISOString().split("T")[0];
-  const todayStops = routeStops.filter((s) => s.agentId === agent.id && s.date === today);
-  const visitedCount = todayStops.filter((s) => s.status === "VISITED").length;
-  return res.json({ ...agent, recentOrders: orders, todayRoute: todayStops, visitedToday: visitedCount, totalStops: todayStops.length });
+
+  const visitedToday = agent.routeStops.filter((s: any) => s.status === "VISITED").length;
+  return res.json({
+    ...mapAgent(agent),
+    recentOrders: agent.orders.map((o: any) => ({ id: o.id, orderNo: o.orderNo, customerName: o.customer?.companyName ?? "", status: o.status, total: Number(o.total), createdAt: o.createdAt?.toISOString() })),
+    visitedToday,
+    totalStops: agent.routeStops.length,
+  });
 });
 
-router.get("/:id/route", authenticate, (req: AuthRequest, res: Response) => {
-  const today = new Date().toISOString().split("T")[0];
-  const stops = routeStops.filter((s) => s.agentId === Number(req.params.id) && s.date === today);
-  res.json(stops);
+router.get("/:id/route", authenticate, async (req: AuthRequest, res: Response) => {
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const stops = await prisma.routeStop.findMany({
+    where: { agentId: Number(req.params.id), date: { gte: todayStart, lt: tomorrowStart } },
+    include: { customer: { select: { companyName: true, address: true, latitude: true, longitude: true } } },
+    orderBy: { order: "asc" },
+  });
+  res.json(stops.map(mapStop));
 });
+
+function mapStop(s: any) {
+  return {
+    id: s.id, agentId: s.agentId, customerId: s.customerId,
+    customerName: s.customer?.companyName ?? "",
+    address: s.customer?.address ?? "",
+    latitude: s.customer?.latitude ?? 0,
+    longitude: s.customer?.longitude ?? 0,
+    plannedTime: s.plannedTime?.toISOString() ?? "",
+    status: s.status, orderId: s.orderId,
+    collectionAmount: Number(s.collectionAmount ?? 0),
+    date: s.date?.toISOString().split("T")[0] ?? "",
+    order: s.order,
+  };
+}
 
 export default router;

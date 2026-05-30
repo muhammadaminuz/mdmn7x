@@ -1,61 +1,122 @@
 import { Router, Response } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
-import { ordersStore } from "../data/orders";
-import { paymentsStore } from "../data/payments";
-import { customers } from "../data/customers";
-import { agents } from "../data/agents";
-import { monthlySales } from "../data/analytics";
+import prisma from "../lib/prisma";
 
 const router = Router();
 
-router.get("/sales", authenticate, (_req: AuthRequest, res: Response) => {
-  const totalRevenue = ordersStore.filter((o) => o.status === "DELIVERED").reduce((s, o) => s + o.total, 0);
-  const totalOrders = ordersStore.length;
-  const deliveredOrders = ordersStore.filter((o) => o.status === "DELIVERED").length;
-  const cancelledOrders = ordersStore.filter((o) => o.status === "CANCELLED").length;
-  res.json({ totalRevenue, totalOrders, deliveredOrders, cancelledOrders, monthlySales });
+router.get("/sales", authenticate, async (_req: AuthRequest, res: Response) => {
+  try {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
+    twelveMonthsAgo.setDate(1);
+    twelveMonthsAgo.setHours(0, 0, 0, 0);
+
+    const [revenueAgg, totalOrders, deliveredOrders, cancelledOrders, allOrders] = await Promise.all([
+      prisma.order.aggregate({
+        where: { status: "DELIVERED" },
+        _sum: { total: true },
+      }),
+      prisma.order.count(),
+      prisma.order.count({ where: { status: "DELIVERED" } }),
+      prisma.order.count({ where: { status: "CANCELLED" } }),
+      prisma.order.findMany({
+        where: { createdAt: { gte: twelveMonthsAgo }, status: { not: "CANCELLED" } },
+        select: { createdAt: true, total: true },
+      }),
+    ]);
+
+    const monthNames = ["Yan", "Fev", "Mar", "Apr", "May", "Iyn", "Iyl", "Avg", "Sen", "Okt", "Noy", "Dek"];
+    const monthMap: Record<string, number> = {};
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      monthMap[key] = 0;
+    }
+    for (const o of allOrders) {
+      const d = new Date(o.createdAt);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      if (key in monthMap) monthMap[key] += Number(o.total);
+    }
+    const monthlySales = Object.entries(monthMap).map(([key, revenue]) => {
+      const [, month] = key.split("-");
+      return { month: monthNames[parseInt(month) - 1], revenue };
+    });
+
+    res.json({
+      totalRevenue: Number(revenueAgg._sum.total ?? 0),
+      totalOrders,
+      deliveredOrders,
+      cancelledOrders,
+      monthlySales,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-router.get("/agents", authenticate, (_req: AuthRequest, res: Response) => {
-  const agentReports = agents.map((a) => {
-    const agentOrders = ordersStore.filter((o) => o.agentId === a.id);
-    const revenue = agentOrders.filter((o) => o.status === "DELIVERED").reduce((s, o) => s + o.total, 0);
-    const agentCustomers = customers.filter((c) => c.agentId === a.id);
-    const totalDebt = agentCustomers.reduce((s, c) => s + c.debt, 0);
-    return {
+router.get("/agents", authenticate, async (_req: AuthRequest, res: Response) => {
+  try {
+    const agents = await prisma.agent.findMany({
+      include: {
+        territory: { select: { name: true } },
+        customers: { select: { id: true, debt: true } },
+        orders: { where: { status: "DELIVERED" }, select: { total: true } },
+        _count: { select: { orders: true, customers: true } },
+      },
+    });
+
+    const agentReports = agents.map((a) => ({
       agentId: a.id,
       agentName: a.fullName,
-      territory: a.territoryName,
-      orders: agentOrders.length,
-      revenue,
-      target: a.monthlyTarget,
+      territory: a.territory?.name ?? "",
+      orders: a._count.orders,
+      revenue: a.orders.reduce((s, o) => s + Number(o.total), 0),
+      target: Number(a.monthlyTarget),
       performance: a.performance,
-      customersCount: a.customersCount,
-      totalDebt,
-    };
-  });
-  res.json(agentReports);
+      customersCount: a._count.customers,
+      totalDebt: a.customers.reduce((s, c) => s + Number(c.debt), 0),
+    }));
+
+    res.json(agentReports);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-router.get("/debts", authenticate, (_req: AuthRequest, res: Response) => {
-  const debtCustomers = customers
-    .filter((c) => c.debt > 0)
-    .sort((a, b) => b.debt - a.debt)
-    .map((c) => {
-      const agent = agents.find((a) => a.id === c.agentId);
-      return {
-        customerId: c.id,
-        customerName: c.companyName,
-        phone: c.phone,
-        district: c.district,
-        debt: c.debt,
-        agentName: agent?.fullName || "Unknown",
-        status: c.debt > 5_000_000 ? "CRITICAL" : c.debt > 2_000_000 ? "OVERDUE" : "CURRENT",
-      };
+router.get("/debts", authenticate, async (_req: AuthRequest, res: Response) => {
+  try {
+    const [customers, collectionsAgg] = await Promise.all([
+      prisma.customer.findMany({
+        where: { debt: { gt: 0 } },
+        include: { agent: { select: { fullName: true } } },
+        orderBy: { debt: "desc" },
+      }),
+      prisma.payment.aggregate({ _sum: { amount: true } }),
+    ]);
+
+    const totalDebt = await prisma.customer.aggregate({ _sum: { debt: true } });
+
+    const debtCustomers = customers.map((c) => ({
+      customerId: c.id,
+      customerName: c.companyName,
+      phone: c.phone,
+      district: c.district,
+      debt: Number(c.debt),
+      agentName: c.agent?.fullName ?? "Unknown",
+      status: Number(c.debt) > 5_000_000 ? "CRITICAL" : Number(c.debt) > 2_000_000 ? "OVERDUE" : "CURRENT",
+    }));
+
+    res.json({
+      debtCustomers,
+      totalDebt: Number(totalDebt._sum.debt ?? 0),
+      totalCollections: Number(collectionsAgg._sum.amount ?? 0),
     });
-  const totalDebt = customers.reduce((s, c) => s + c.debt, 0);
-  const totalCollections = paymentsStore.reduce((s, p) => s + p.amount, 0);
-  res.json({ debtCustomers, totalDebt, totalCollections });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;

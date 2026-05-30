@@ -1,24 +1,56 @@
 import { Router, Response } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
-import { notificationsStore } from "../data/notifications";
+import prisma from "../lib/prisma";
 
 const router = Router();
 
-router.get("/", authenticate, (_req: AuthRequest, res: Response) => {
-  const sorted = [...notificationsStore].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  res.json({ items: sorted, unreadCount: sorted.filter((n) => !n.isRead).length });
+function mapNotification(n: any) {
+  return {
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    message: n.message,
+    isRead: n.isRead,
+    userId: n.userId,
+    createdAt: n.createdAt?.toISOString(),
+  };
+}
+
+router.get("/", authenticate, async (_req: AuthRequest, res: Response) => {
+  try {
+    const notifications = await prisma.notification.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    const items = notifications.map(mapNotification);
+    res.json({ items, unreadCount: items.filter((n) => !n.isRead).length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-router.put("/:id/read", authenticate, (req: AuthRequest, res: Response) => {
-  const idx = notificationsStore.findIndex((n) => n.id === Number(req.params.id));
-  if (idx === -1) return res.status(404).json({ error: "Notification not found" });
-  notificationsStore[idx].isRead = true;
-  return res.json(notificationsStore[idx]);
+router.put("/:id/read", authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const notification = await prisma.notification.update({
+      where: { id: Number(req.params.id) },
+      data: { isRead: true },
+    });
+    return res.json(mapNotification(notification));
+  } catch (err: any) {
+    if (err?.code === "P2025") return res.status(404).json({ error: "Notification not found" });
+    console.error(err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-router.put("/mark-all-read", authenticate, (_req: AuthRequest, res: Response) => {
-  notificationsStore.forEach((n) => { n.isRead = true; });
-  res.json({ message: "All notifications marked as read" });
+router.put("/mark-all-read", authenticate, async (_req: AuthRequest, res: Response) => {
+  try {
+    await prisma.notification.updateMany({ data: { isRead: true } });
+    res.json({ message: "All notifications marked as read" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;

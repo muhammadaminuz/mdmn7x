@@ -1,72 +1,113 @@
 import { Router, Response } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
-import { ordersStore } from "../data/orders";
+import prisma from "../lib/prisma";
 
 const router = Router();
 
-router.get("/", authenticate, (req: AuthRequest, res: Response) => {
-  const { page = 1, limit = 20, status, agentId, customerId, search, dateFrom, dateTo } = req.query;
-  let result = [...ordersStore];
-  if (status) result = result.filter((o) => o.status === status);
-  if (agentId) result = result.filter((o) => o.agentId === Number(agentId));
-  if (customerId) result = result.filter((o) => o.customerId === Number(customerId));
-  if (search) result = result.filter((o) => o.orderNo.includes(String(search)) || o.customerName.toLowerCase().includes(String(search).toLowerCase()));
-  if (dateFrom) result = result.filter((o) => o.createdAt >= String(dateFrom));
-  if (dateTo) result = result.filter((o) => o.createdAt <= String(dateTo));
-  if (req.user?.role === "SALES_AGENT" && req.user.agentId) {
-    result = result.filter((o) => o.agentId === req.user!.agentId);
+function mapOrder(o: any) {
+  return {
+    id: o.id,
+    orderNo: o.orderNo,
+    customerId: o.customerId,
+    customerName: o.customer?.companyName ?? "",
+    agentId: o.agentId,
+    agentName: o.agent?.fullName ?? "",
+    status: o.status,
+    items: (o.items ?? []).map((i: any) => ({
+      productId: i.productId,
+      productName: i.product?.name ?? "",
+      quantity: i.quantity,
+      price: Number(i.price),
+      total: Number(i.total),
+    })),
+    subtotal: Number(o.subtotal),
+    discount: Number(o.discount),
+    total: Number(o.total),
+    note: o.note,
+    createdAt: o.createdAt?.toISOString(),
+    updatedAt: o.updatedAt?.toISOString(),
+    deliveredAt: o.deliveredAt?.toISOString() ?? null,
+  };
+}
+
+const orderInclude = {
+  customer: { select: { companyName: true } },
+  agent: { select: { fullName: true } },
+  items: { include: { product: { select: { name: true } } } },
+};
+
+router.get("/", authenticate, async (req: AuthRequest, res: Response) => {
+  const { page = 1, limit = 10, status, agentId, customerId, search, from, to } = req.query;
+  const p = Number(page); const l = Number(limit);
+
+  const where: any = {};
+  if (status) where.status = status;
+  if (agentId) where.agentId = Number(agentId);
+  if (customerId) where.customerId = Number(customerId);
+  if (from || to) {
+    where.createdAt = {};
+    if (from) where.createdAt.gte = new Date(String(from));
+    if (to) { const toDate = new Date(String(to)); toDate.setHours(23, 59, 59, 999); where.createdAt.lte = toDate; }
   }
-  result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const total = result.length;
-  const p = Number(page);
-  const l = Number(limit);
-  const items = result.slice((p - 1) * l, p * l);
-  res.json({ items, total, page: p, limit: l, totalPages: Math.ceil(total / l) });
+  if (search) {
+    where.OR = [
+      { orderNo: { contains: String(search), mode: "insensitive" } },
+      { customer: { companyName: { contains: String(search), mode: "insensitive" } } },
+    ];
+  }
+  if (req.user?.role === "SALES_AGENT" && req.user.agentId) {
+    where.agentId = req.user.agentId;
+  }
+
+  const [items, total] = await Promise.all([
+    prisma.order.findMany({ where, include: orderInclude, orderBy: { createdAt: "desc" }, skip: (p - 1) * l, take: l }),
+    prisma.order.count({ where }),
+  ]);
+
+  res.json({ items: items.map(mapOrder), total, page: p, limit: l, totalPages: Math.ceil(total / l) });
 });
 
-router.get("/:id", authenticate, (req: AuthRequest, res: Response) => {
-  const order = ordersStore.find((o) => o.id === Number(req.params.id));
+router.get("/:id", authenticate, async (req: AuthRequest, res: Response) => {
+  const order = await prisma.order.findUnique({ where: { id: Number(req.params.id) }, include: orderInclude });
   if (!order) return res.status(404).json({ error: "Order not found" });
-  return res.json(order);
+  return res.json(mapOrder(order));
 });
 
-router.post("/", authenticate, (req: AuthRequest, res: Response) => {
-  const { customerId, customerName, items, discount = 0, note } = req.body;
+router.post("/", authenticate, async (req: AuthRequest, res: Response) => {
+  const { customerId, items, discount = 0, note } = req.body;
   const agentId = req.user?.agentId || req.body.agentId;
-  const agentName = req.body.agentName || "Unknown";
+  if (!agentId) return res.status(400).json({ error: "agentId required" });
+
   const subtotal = items.reduce((s: number, i: { total: number }) => s + i.total, 0);
   const total = subtotal - discount;
-  const newOrder = {
-    id: ordersStore.length + 1,
-    orderNo: `ORD-2025-${String(ordersStore.length + 1).padStart(4, "0")}`,
-    customerId,
-    customerName,
-    agentId,
-    agentName,
-    status: "DRAFT" as const,
-    items,
-    subtotal,
-    discount,
-    total,
-    note,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  ordersStore.push(newOrder);
-  res.status(201).json(newOrder);
+  const count = await prisma.order.count();
+  const year = new Date().getFullYear();
+
+  const order = await prisma.order.create({
+    data: {
+      orderNo: `ORD-${year}-${String(count + 1).padStart(4, "0")}`,
+      customerId: Number(customerId),
+      agentId: Number(agentId),
+      status: "DRAFT",
+      subtotal,
+      discount,
+      total,
+      note,
+      items: { create: items.map((i: any) => ({ productId: Number(i.productId), quantity: Number(i.quantity), price: Number(i.price), total: Number(i.total) })) },
+    },
+    include: orderInclude,
+  });
+  res.status(201).json(mapOrder(order));
 });
 
-router.put("/:id/status", authenticate, (req: AuthRequest, res: Response) => {
-  const idx = ordersStore.findIndex((o) => o.id === Number(req.params.id));
-  if (idx === -1) return res.status(404).json({ error: "Order not found" });
+router.put("/:id/status", authenticate, async (req: AuthRequest, res: Response) => {
   const { status } = req.body;
-  ordersStore[idx] = {
-    ...ordersStore[idx],
-    status,
-    updatedAt: new Date().toISOString(),
-    ...(status === "DELIVERED" ? { deliveredAt: new Date().toISOString() } : {}),
-  };
-  return res.json(ordersStore[idx]);
+  const order = await prisma.order.update({
+    where: { id: Number(req.params.id) },
+    data: { status, updatedAt: new Date(), ...(status === "DELIVERED" ? { deliveredAt: new Date() } : {}) },
+    include: orderInclude,
+  });
+  return res.json(mapOrder(order));
 });
 
 export default router;

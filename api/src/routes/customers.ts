@@ -1,48 +1,72 @@
 import { Router, Response } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
-import { customers } from "../data/customers";
-import { ordersStore } from "../data/orders";
-import { paymentsStore } from "../data/payments";
+import prisma from "../lib/prisma";
 
 const router = Router();
-let customersStore = [...customers];
 
-router.get("/", authenticate, (req: AuthRequest, res: Response) => {
+function mapCustomer(c: any) {
+  return {
+    id: c.id, companyName: c.companyName, ownerName: c.ownerName, phone: c.phone,
+    region: c.region, district: c.district, address: c.address,
+    latitude: c.latitude, longitude: c.longitude,
+    debt: Number(c.debt), balance: Number(c.balance),
+    status: c.status, agentId: c.agentId, territoryId: c.territoryId,
+    createdAt: c.createdAt?.toISOString(),
+    lastVisit: c.lastVisit?.toISOString() ?? null,
+  };
+}
+
+router.get("/", authenticate, async (req: AuthRequest, res: Response) => {
   const { page = 1, limit = 20, search, status, agentId, territoryId } = req.query;
-  let result = [...customersStore];
-  if (search) result = result.filter((c) => c.companyName.toLowerCase().includes(String(search).toLowerCase()) || c.ownerName.toLowerCase().includes(String(search).toLowerCase()) || c.phone.includes(String(search)));
-  if (status) result = result.filter((c) => c.status === status);
-  if (agentId) result = result.filter((c) => c.agentId === Number(agentId));
-  if (territoryId) result = result.filter((c) => c.territoryId === Number(territoryId));
-  if (req.user?.role === "SALES_AGENT" && req.user.agentId) {
-    result = result.filter((c) => c.agentId === req.user!.agentId);
+  const p = Number(page); const l = Number(limit);
+  const where: any = {};
+  if (status) where.status = status;
+  if (agentId) where.agentId = Number(agentId);
+  if (territoryId) where.territoryId = Number(territoryId);
+  if (search) {
+    where.OR = [
+      { companyName: { contains: String(search), mode: "insensitive" } },
+      { ownerName: { contains: String(search), mode: "insensitive" } },
+      { phone: { contains: String(search) } },
+    ];
   }
-  const total = result.length;
-  const p = Number(page);
-  const l = Number(limit);
-  const items = result.slice((p - 1) * l, p * l);
-  res.json({ items, total, page: p, limit: l, totalPages: Math.ceil(total / l) });
+  if (req.user?.role === "SALES_AGENT" && req.user.agentId) where.agentId = req.user.agentId;
+
+  const [items, total] = await Promise.all([
+    prisma.customer.findMany({ where, skip: (p - 1) * l, take: l, orderBy: { companyName: "asc" } }),
+    prisma.customer.count({ where }),
+  ]);
+  res.json({ items: items.map(mapCustomer), total, page: p, limit: l, totalPages: Math.ceil(total / l) });
 });
 
-router.get("/:id", authenticate, (req: AuthRequest, res: Response) => {
-  const customer = customersStore.find((c) => c.id === Number(req.params.id));
+router.get("/:id", authenticate, async (req: AuthRequest, res: Response) => {
+  const customer = await prisma.customer.findUnique({
+    where: { id: Number(req.params.id) },
+    include: {
+      orders: { orderBy: { createdAt: "desc" }, take: 10, include: { items: { include: { product: { select: { name: true } } } } } },
+      payments: { orderBy: { createdAt: "desc" }, take: 10 },
+    },
+  });
   if (!customer) return res.status(404).json({ error: "Customer not found" });
-  const orders = ordersStore.filter((o) => o.customerId === customer.id).slice(0, 10);
-  const payments = paymentsStore.filter((p) => p.customerId === customer.id).slice(0, 10);
-  return res.json({ ...customer, orders, payments });
+  return res.json({
+    ...mapCustomer(customer),
+    orders: customer.orders.map((o: any) => ({
+      id: o.id, orderNo: o.orderNo, status: o.status,
+      total: Number(o.total), createdAt: o.createdAt?.toISOString(),
+      items: o.items.map((i: any) => ({ productId: i.productId, productName: i.product?.name ?? "", quantity: i.quantity, price: Number(i.price), total: Number(i.total) })),
+    })),
+    payments: customer.payments.map((p: any) => ({ id: p.id, amount: Number(p.amount), method: p.method, note: p.note, createdAt: p.createdAt?.toISOString() })),
+  });
 });
 
-router.post("/", authenticate, (req: AuthRequest, res: Response) => {
-  const newCustomer = { ...req.body, id: customersStore.length + 1, createdAt: new Date().toISOString() };
-  customersStore.push(newCustomer);
-  res.status(201).json(newCustomer);
+router.post("/", authenticate, async (req: AuthRequest, res: Response) => {
+  const customer = await prisma.customer.create({ data: req.body });
+  res.status(201).json(mapCustomer(customer));
 });
 
-router.put("/:id", authenticate, (req: AuthRequest, res: Response) => {
-  const idx = customersStore.findIndex((c) => c.id === Number(req.params.id));
-  if (idx === -1) return res.status(404).json({ error: "Customer not found" });
-  customersStore[idx] = { ...customersStore[idx], ...req.body };
-  return res.json(customersStore[idx]);
+router.put("/:id", authenticate, async (req: AuthRequest, res: Response) => {
+  const customer = await prisma.customer.update({ where: { id: Number(req.params.id) }, data: req.body });
+  return res.json(mapCustomer(customer));
 });
 
 export default router;
