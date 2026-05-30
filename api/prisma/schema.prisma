@@ -1,0 +1,269 @@
+// FMCG Distribution ERP - Complete Prisma Schema
+// This schema is for documentation and future production use.
+// The demo runs with in-memory mock data.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  DIRECTOR
+  SUPERVISOR
+  SALES_MANAGER
+  SALES_AGENT
+  WAREHOUSE_OPERATOR
+  ACCOUNTANT
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  DELIVERED
+  CANCELLED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  CHEQUE
+}
+
+enum NotificationType {
+  NEW_ORDER
+  DEBT_REMINDER
+  TARGET_ACHIEVED
+  LOW_STOCK
+  PAYMENT_RECEIVED
+}
+
+model User {
+  id          Int      @id @default(autoincrement())
+  fullName    String
+  email       String   @unique
+  password    String
+  phone       String
+  role        Role
+  isActive    Boolean  @default(true)
+  agent       Agent?   @relation(fields: [agentId], references: [id])
+  agentId     Int?
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id])
+  warehouseId Int?
+  auditLogs   AuditLog[]
+  notifications Notification[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Territory {
+  id          Int        @id @default(autoincrement())
+  name        String
+  region      String
+  agents      Agent[]
+  customers   Customer[]
+  createdAt   DateTime   @default(now())
+}
+
+model Agent {
+  id              Int       @id @default(autoincrement())
+  fullName        String
+  phone           String
+  email           String    @unique
+  territory       Territory @relation(fields: [territoryId], references: [id])
+  territoryId     Int
+  monthlyTarget   Decimal   @db.Decimal(15, 2)
+  currentSales    Decimal   @default(0) @db.Decimal(15, 2)
+  performance     Float     @default(0)
+  isActive        Boolean   @default(true)
+  latitude        Float?
+  longitude       Float?
+  lastSeen        DateTime?
+  users           User[]
+  orders          Order[]
+  payments        Payment[]
+  gpsLogs         GpsLog[]
+  routeStops      RouteStop[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Customer {
+  id          Int            @id @default(autoincrement())
+  companyName String
+  ownerName   String
+  phone       String
+  region      String
+  district    String
+  address     String
+  latitude    Float
+  longitude   Float
+  debt        Decimal        @default(0) @db.Decimal(15, 2)
+  balance     Decimal        @default(0) @db.Decimal(15, 2)
+  status      CustomerStatus @default(ACTIVE)
+  agent       Agent          @relation(fields: [agentId], references: [id])
+  agentId     Int
+  territory   Territory      @relation(fields: [territoryId], references: [id])
+  territoryId Int
+  orders      Order[]
+  payments    Payment[]
+  routeStops  RouteStop[]
+  lastVisit   DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model Product {
+  id             Int        @id @default(autoincrement())
+  sku            String     @unique
+  barcode        String     @unique
+  name           String
+  category       String
+  price          Decimal    @db.Decimal(15, 2)
+  wholesalePrice Decimal    @db.Decimal(15, 2)
+  stock          Int        @default(0)
+  minStock       Int        @default(10)
+  warehouse      Warehouse  @relation(fields: [warehouseId], references: [id])
+  warehouseId    Int
+  image          String?
+  isActive       Boolean    @default(true)
+  expiryDate     DateTime?
+  batchNo        String?
+  orderItems     OrderItem[]
+  inventoryLogs  InventoryLog[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+model Warehouse {
+  id           Int             @id @default(autoincrement())
+  name         String
+  location     String
+  manager      String
+  phone        String
+  isActive     Boolean         @default(true)
+  products     Product[]
+  users        User[]
+  inventoryLogs InventoryLog[]
+  createdAt    DateTime        @default(now())
+}
+
+model Order {
+  id          Int         @id @default(autoincrement())
+  orderNo     String      @unique
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  customerId  Int
+  agent       Agent       @relation(fields: [agentId], references: [id])
+  agentId     Int
+  status      OrderStatus @default(DRAFT)
+  items       OrderItem[]
+  subtotal    Decimal     @db.Decimal(15, 2)
+  discount    Decimal     @default(0) @db.Decimal(15, 2)
+  total       Decimal     @db.Decimal(15, 2)
+  note        String?
+  payments    Payment[]
+  deliveredAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model OrderItem {
+  id          Int     @id @default(autoincrement())
+  order       Order   @relation(fields: [orderId], references: [id])
+  orderId     Int
+  product     Product @relation(fields: [productId], references: [id])
+  productId   Int
+  quantity    Int
+  price       Decimal @db.Decimal(15, 2)
+  total       Decimal @db.Decimal(15, 2)
+}
+
+model Payment {
+  id           Int           @id @default(autoincrement())
+  order        Order?        @relation(fields: [orderId], references: [id])
+  orderId      Int?
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  customerId   Int
+  agent        Agent         @relation(fields: [agentId], references: [id])
+  agentId      Int
+  amount       Decimal       @db.Decimal(15, 2)
+  method       PaymentMethod
+  note         String?
+  createdAt    DateTime      @default(now())
+}
+
+model GpsLog {
+  id        Int      @id @default(autoincrement())
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  agentId   Int
+  latitude  Float
+  longitude Float
+  accuracy  Float?
+  createdAt DateTime @default(now())
+
+  @@index([agentId, createdAt])
+}
+
+model RouteStop {
+  id               Int      @id @default(autoincrement())
+  agent            Agent    @relation(fields: [agentId], references: [id])
+  agentId          Int
+  customer         Customer @relation(fields: [customerId], references: [id])
+  customerId       Int
+  plannedTime      DateTime
+  status           String   @default("PENDING")
+  order            Int      @default(0)
+  orderId          Int?
+  collectionAmount Decimal? @db.Decimal(15, 2)
+  date             DateTime
+  createdAt        DateTime @default(now())
+}
+
+model InventoryLog {
+  id          Int       @id @default(autoincrement())
+  product     Product   @relation(fields: [productId], references: [id])
+  productId   Int
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  warehouseId Int
+  type        String
+  quantity    Int
+  note        String?
+  createdAt   DateTime  @default(now())
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  action    String
+  entity    String
+  entityId  Int?
+  changes   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  user      User?            @relation(fields: [userId], references: [id])
+  userId    Int?
+  createdAt DateTime         @default(now())
+}

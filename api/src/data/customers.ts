@@ -1,0 +1,85 @@
+import { Customer } from "../types";
+
+const regions = ["Toshkent"];
+const districts = [
+  "Chilonzor",
+  "Yunusobod",
+  "Mirzo Ulugbek",
+  "Sergeli",
+  "Bektemir",
+  "Uchtepa",
+];
+const statuses: Customer["status"][] = ["ACTIVE", "ACTIVE", "ACTIVE", "INACTIVE", "BLOCKED"];
+
+function makeCustomer(
+  id: number,
+  companyName: string,
+  ownerName: string,
+  phone: string,
+  district: string,
+  territoryId: number,
+  agentId: number,
+  debt: number,
+  balance: number,
+  status: Customer["status"],
+  lat: number,
+  lng: number,
+  lastVisit?: string
+): Customer {
+  return {
+    id,
+    companyName,
+    ownerName,
+    phone,
+    region: "Toshkent",
+    district,
+    address: `${district} ko'chasi, ${id}-uy`,
+    latitude: lat,
+    longitude: lng,
+    debt,
+    balance,
+    status,
+    agentId,
+    territoryId,
+    createdAt: `2024-0${Math.ceil(id / 25) % 9 || 1}-01T00:00:00Z`,
+    lastVisit,
+  };
+}
+
+export const customers: Customer[] = [
+  makeCustomer(1, "Baraka Savdo", "Alisher Nazarov", "+998901111001", "Chilonzor", 1, 1, 2_500_000, 500_000, "ACTIVE", 41.2965, 69.2390, "2025-05-28T10:00:00Z"),
+  makeCustomer(2, "Nur Bozor", "Saodat Raximova", "+998901111002", "Chilonzor", 1, 1, 0, 1_200_000, "ACTIVE", 41.2980, 69.2410, "2025-05-28T11:00:00Z"),
+  makeCustomer(3, "Gold Market", "Tohir Usmonov", "+998901111003", "Chilonzor", 1, 1, 5_100_000, 0, "ACTIVE", 41.2940, 69.2370, "2025-05-27T09:00:00Z"),
+  makeCustomer(4, "Sham Doʻkoni", "Feruza Qosimova", "+998901111004", "Chilonzor", 1, 1, 0, 800_000, "ACTIVE", 41.2920, 69.2350, "2025-05-27T12:00:00Z"),
+  makeCustomer(5, "Mehnat Savdo", "Baxtiyor Xoliqov", "+998901111005", "Chilonzor", 1, 1, 1_800_000, 0, "ACTIVE", 41.3010, 69.2430, "2025-05-26T10:00:00Z"),
+  makeCustomer(6, "Inson Bozori", "Gulnora Tojiboyeva", "+998901111006", "Chilonzor", 1, 1, 0, 2_000_000, "ACTIVE", 41.3025, 69.2450, "2025-05-28T14:00:00Z"),
+  makeCustomer(7, "Zulfiya Market", "Zulfiya Yusupova", "+998901111007", "Chilonzor", 1, 1, 3_200_000, 0, "INACTIVE", 41.2950, 69.2380, "2025-05-20T09:00:00Z"),
+  makeCustomer(8, "Yangi Hayot", "Doniyor Holmatov", "+998901111008", "Yunusobod", 2, 2, 0, 1_500_000, "ACTIVE", 41.3210, 69.2840, "2025-05-28T09:30:00Z"),
+  makeCustomer(9, "Baxt Market", "Lola Hasanova", "+998901111009", "Yunusobod", 2, 2, 4_500_000, 0, "ACTIVE", 41.3230, 69.2860, "2025-05-27T11:00:00Z"),
+  makeCustomer(10, "Islom Savdo", "Islom Qodirov", "+998901111010", "Yunusobod", 2, 2, 0, 3_000_000, "ACTIVE", 41.3245, 69.2890, "2025-05-28T13:00:00Z"),
+  makeCustomer(11, "Farrux Bozor", "Farrux Xoliqov", "+998901111011", "Yunusobod", 2, 2, 900_000, 0, "ACTIVE", 41.3200, 69.2820, "2025-05-26T10:30:00Z"),
+  makeCustomer(12, "Ziyod Market", "Ziyoda Rahimova", "+998901111012", "Yunusobod", 2, 2, 0, 700_000, "ACTIVE", 41.3215, 69.2835, "2025-05-28T08:00:00Z"),
+  makeCustomer(13, "Nargiza Savdo", "Nargiza Xo'jayeva", "+998901111013", "Yunusobod", 2, 2, 6_800_000, 0, "ACTIVE", 41.3250, 69.2900, "2025-05-25T09:00:00Z"),
+  makeCustomer(14, "Abdulla Market", "Abdulla Toshmatov", "+998901111014", "Mirzo Ulugbek", 3, 3, 0, 4_200_000, "ACTIVE", 41.3380, 69.3200, "2025-05-28T10:00:00Z"),
+  makeCustomer(15, "Umid Bozor", "Umid Karimov", "+998901111015", "Mirzo Ulugbek", 3, 3, 2_100_000, 0, "ACTIVE", 41.3400, 69.3240, "2025-05-27T12:00:00Z"),
+  makeCustomer(16, "Sarvar Market", "Sarvar Yoʻldoshev", "+998901111016", "Mirzo Ulugbek", 3, 3, 0, 1_800_000, "ACTIVE", 41.3420, 69.3260, "2025-05-28T11:00:00Z"),
+  makeCustomer(17, "Dilnoza Savdo", "Dilnoza Hasanova", "+998901111017", "Mirzo Ulugbek", 3, 3, 3_600_000, 0, "ACTIVE", 41.3360, 69.3180, "2025-05-27T09:00:00Z"),
+  makeCustomer(18, "Komil Bozor", "Komiljon Tursunov", "+998901111018", "Mirzo Ulugbek", 3, 3, 0, 900_000, "ACTIVE", 41.3390, 69.3210, "2025-05-28T14:30:00Z"),
+  makeCustomer(19, "Bahor Market", "Bahor Sobirov", "+998901111019", "Sergeli", 4, 4, 1_200_000, 0, "ACTIVE", 41.2440, 69.2090, "2025-05-28T09:00:00Z"),
+  makeCustomer(20, "Tolib Savdo", "Tolibjon Muxtorov", "+998901111020", "Sergeli", 4, 4, 0, 2_500_000, "ACTIVE", 41.2460, 69.2130, "2025-05-27T11:30:00Z"),
+  makeCustomer(21, "Maftuna Market", "Maftuna Nazarova", "+998901111021", "Sergeli", 4, 4, 4_700_000, 0, "ACTIVE", 41.2470, 69.2150, "2025-05-26T10:00:00Z"),
+  makeCustomer(22, "Anvar Bozor", "Anvar Sotvoldiyev", "+998901111022", "Bektemir", 5, 5, 0, 1_100_000, "ACTIVE", 41.2820, 69.3500, "2025-05-28T10:30:00Z"),
+  makeCustomer(23, "Zilola Market", "Zilola Qurbonova", "+998901111023", "Bektemir", 5, 5, 2_800_000, 0, "ACTIVE", 41.2840, 69.3530, "2025-05-27T12:30:00Z"),
+  makeCustomer(24, "Husan Savdo", "Husanboy Mirxo'jayev", "+998901111024", "Uchtepa", 6, 6, 0, 3_300_000, "ACTIVE", 41.3100, 69.2070, "2025-05-28T09:00:00Z"),
+  makeCustomer(25, "Shirin Bozor", "Shirinoy Qodirov", "+998901111025", "Uchtepa", 6, 6, 1_600_000, 0, "ACTIVE", 41.3120, 69.2100, "2025-05-27T13:00:00Z"),
+  makeCustomer(26, "Ozoda Market", "Ozoda Toshpulatova", "+998901111026", "Chilonzor", 1, 1, 0, 600_000, "ACTIVE", 41.2955, 69.2395, "2025-05-28T15:00:00Z"),
+  makeCustomer(27, "Hamid Savdo", "Hamid Ergashev", "+998901111027", "Yunusobod", 2, 2, 3_100_000, 0, "ACTIVE", 41.3205, 69.2845, "2025-05-27T10:00:00Z"),
+  makeCustomer(28, "Nozima Market", "Nozima Rahimova", "+998901111028", "Mirzo Ulugbek", 3, 3, 0, 2_200_000, "ACTIVE", 41.3370, 69.3190, "2025-05-28T12:00:00Z"),
+  makeCustomer(29, "Vohid Bozor", "Vohid Xolmatov", "+998901111029", "Sergeli", 4, 4, 800_000, 0, "ACTIVE", 41.2450, 69.2110, "2025-05-26T11:00:00Z"),
+  makeCustomer(30, "Laylo Savdo", "Laylo Mirzayeva", "+998901111030", "Bektemir", 5, 5, 0, 1_900_000, "ACTIVE", 41.2850, 69.3540, "2025-05-28T10:00:00Z"),
+  makeCustomer(31, "Toshkent Bozor", "Murod Qosimov", "+998901111031", "Uchtepa", 6, 6, 5_500_000, 0, "ACTIVE", 41.3115, 69.2095, "2025-05-25T14:00:00Z"),
+  makeCustomer(32, "Mehr Market", "Mehriban Saidova", "+998901111032", "Chilonzor", 1, 1, 0, 4_000_000, "ACTIVE", 41.2975, 69.2405, "2025-05-28T11:30:00Z"),
+  makeCustomer(33, "Mushtariy Savdo", "Mushtariy Xasanova", "+998901111033", "Yunusobod", 2, 2, 7_200_000, 0, "ACTIVE", 41.3240, 69.2880, "2025-05-24T09:00:00Z"),
+  makeCustomer(34, "Xurshid Bozor", "Xurshid Yusupov", "+998901111034", "Mirzo Ulugbek", 3, 3, 0, 1_400_000, "ACTIVE", 41.3410, 69.3250, "2025-05-28T13:30:00Z"),
+  makeCustomer(35, "Kamola Market", "Kamola Nazarova", "+998901111035", "Sergeli", 4, 4, 2_300_000, 0, "BLOCKED", 41.2435, 69.2085, "2025-05-10T09:00:00Z"),
+];

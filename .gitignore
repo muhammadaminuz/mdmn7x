@@ -1,0 +1,14 @@
+# Build artifacts
+**/node_modules
+**/.next
+**/dist
+**/.env
+**/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

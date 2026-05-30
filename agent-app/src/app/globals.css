@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { @apply bg-gray-50 text-gray-900 antialiased; font-family: 'Inter', sans-serif; }
+  * { -webkit-font-smoothing: antialiased; }
+}
+
+@layer components {
+  .mobile-card {
+    @apply bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden;
+  }
+  .green-btn {
+    @apply w-full bg-primary-500 active:bg-primary-600 text-white font-semibold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 text-base;
+  }
+  .green-btn-sm {
+    @apply bg-primary-500 active:bg-primary-600 text-white font-semibold py-2.5 px-5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm;
+  }
+  .outline-btn {
+    @apply w-full bg-white border-2 border-primary-500 text-primary-600 font-semibold py-4 rounded-2xl transition-colors flex items-center justify-center gap-2 text-base;
+  }
+  .page-container {
+    @apply max-w-md mx-auto min-h-screen;
+  }
+  .bottom-nav-item {
+    @apply flex flex-col items-center gap-0.5 flex-1 py-2 transition-colors;
+  }
+}
