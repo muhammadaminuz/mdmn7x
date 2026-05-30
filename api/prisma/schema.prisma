@@ -96,6 +96,7 @@ model Agent {
   payments        Payment[]
   gpsLogs         GpsLog[]
   routeStops      RouteStop[]
+  customers       Customer[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
