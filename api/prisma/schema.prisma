@@ -62,10 +62,12 @@ model User {
   agentId     Int?
   warehouse   Warehouse? @relation(fields: [warehouseId], references: [id])
   warehouseId Int?
-  auditLogs   AuditLog[]
-  notifications Notification[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  auditLogs      AuditLog[]
+  notifications  Notification[]
+  stockMovements StockMovement[]
+  expenses       Expense[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Territory {
@@ -97,6 +99,8 @@ model Agent {
   gpsLogs         GpsLog[]
   routeStops      RouteStop[]
   customers       Customer[]
+  returns         ReturnOrder[]
+  bonusLogs       BonusLog[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
@@ -121,6 +125,7 @@ model Customer {
   orders      Order[]
   payments    Payment[]
   routeStops  RouteStop[]
+  returns     ReturnOrder[]
   lastVisit   DateTime?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -144,6 +149,8 @@ model Product {
   batchNo        String?
   orderItems     OrderItem[]
   inventoryLogs  InventoryLog[]
+  stockMovements StockMovement[]
+  returnItems    ReturnItem[]
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 }
@@ -155,10 +162,12 @@ model Warehouse {
   manager      String
   phone        String
   isActive     Boolean         @default(true)
-  products     Product[]
-  users        User[]
-  inventoryLogs InventoryLog[]
-  createdAt    DateTime        @default(now())
+  products          Product[]
+  users             User[]
+  inventoryLogs     InventoryLog[]
+  incomingMovements StockMovement[] @relation("MovementTo")
+  outgoingMovements StockMovement[] @relation("MovementFrom")
+  createdAt         DateTime        @default(now())
 }
 
 model Order {
@@ -175,6 +184,7 @@ model Order {
   total       Decimal     @db.Decimal(15, 2)
   note        String?
   payments    Payment[]
+  returns     ReturnOrder[]
   deliveredAt DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -267,4 +277,133 @@ model Notification {
   user      User?            @relation(fields: [userId], references: [id])
   userId    Int?
   createdAt DateTime         @default(now())
+}
+
+enum MovementType {
+  INCOMING
+  OUTGOING
+  TRANSFER
+  RETURN_IN
+  RETURN_OUT
+  ADJUSTMENT
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model Supplier {
+  id            Int               @id @default(autoincrement())
+  name          String
+  contactPerson String
+  phone         String
+  email         String?
+  address       String?
+  taxId         String?
+  balance       Decimal           @default(0) @db.Decimal(15, 2)
+  isActive      Boolean           @default(true)
+  stockMovements StockMovement[]
+  payments      SupplierPayment[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model SupplierPayment {
+  id         Int           @id @default(autoincrement())
+  supplier   Supplier      @relation(fields: [supplierId], references: [id])
+  supplierId Int
+  amount     Decimal       @db.Decimal(15, 2)
+  method     PaymentMethod
+  note       String?
+  createdAt  DateTime      @default(now())
+}
+
+model StockMovement {
+  id              Int          @id @default(autoincrement())
+  type            MovementType
+  product         Product      @relation(fields: [productId], references: [id])
+  productId       Int
+  fromWarehouse   Warehouse?   @relation("MovementFrom", fields: [fromWarehouseId], references: [id])
+  fromWarehouseId Int?
+  toWarehouse     Warehouse?   @relation("MovementTo", fields: [toWarehouseId], references: [id])
+  toWarehouseId   Int?
+  supplier        Supplier?    @relation(fields: [supplierId], references: [id])
+  supplierId      Int?
+  quantity        Int
+  unitCost        Decimal?     @db.Decimal(15, 2)
+  totalCost       Decimal?     @db.Decimal(15, 2)
+  batchNo         String?
+  expiryDate      DateTime?
+  note            String?
+  createdBy       User?        @relation(fields: [createdById], references: [id])
+  createdById     Int?
+  createdAt       DateTime     @default(now())
+}
+
+model ReturnOrder {
+  id         Int          @id @default(autoincrement())
+  returnNo   String       @unique
+  order      Order?       @relation(fields: [orderId], references: [id])
+  orderId    Int?
+  customer   Customer     @relation(fields: [customerId], references: [id])
+  customerId Int
+  agent      Agent        @relation(fields: [agentId], references: [id])
+  agentId    Int
+  status     ReturnStatus @default(PENDING)
+  reason     String
+  items      ReturnItem[]
+  total      Decimal      @db.Decimal(15, 2)
+  note       String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+model ReturnItem {
+  id            Int         @id @default(autoincrement())
+  returnOrder   ReturnOrder @relation(fields: [returnOrderId], references: [id])
+  returnOrderId Int
+  product       Product     @relation(fields: [productId], references: [id])
+  productId     Int
+  quantity      Int
+  price         Decimal     @db.Decimal(15, 2)
+  total         Decimal     @db.Decimal(15, 2)
+}
+
+model Expense {
+  id          Int           @id @default(autoincrement())
+  category    String
+  amount      Decimal       @db.Decimal(15, 2)
+  description String
+  paidBy      User?         @relation(fields: [paidById], references: [id])
+  paidById    Int?
+  method      PaymentMethod
+  createdAt   DateTime      @default(now())
+}
+
+model BonusRule {
+  id          Int       @id @default(autoincrement())
+  name        String
+  targetType  String
+  targetValue Decimal   @db.Decimal(15, 2)
+  bonusAmount Decimal   @db.Decimal(15, 2)
+  bonusType   String
+  isActive    Boolean   @default(true)
+  bonusLogs   BonusLog[]
+  createdAt   DateTime  @default(now())
+}
+
+model BonusLog {
+  id          Int        @id @default(autoincrement())
+  agent       Agent      @relation(fields: [agentId], references: [id])
+  agentId     Int
+  rule        BonusRule? @relation(fields: [ruleId], references: [id])
+  ruleId      Int?
+  amount      Decimal    @db.Decimal(15, 2)
+  description String
+  month       Int
+  year        Int
+  createdAt   DateTime   @default(now())
 }

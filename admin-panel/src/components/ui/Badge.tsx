@@ -12,6 +12,14 @@ const statusColors = {
   CRITICAL: "bg-red-100 text-red-700",
   OVERDUE: "bg-amber-100 text-amber-700",
   CURRENT: "bg-blue-100 text-blue-700",
+  REJECTED: "bg-red-100 text-red-700",
+  COMPLETED: "bg-green-100 text-green-700",
+  INCOMING: "bg-green-100 text-green-700",
+  OUTGOING: "bg-red-100 text-red-700",
+  TRANSFER: "bg-blue-100 text-blue-700",
+  RETURN_IN: "bg-purple-100 text-purple-700",
+  RETURN_OUT: "bg-orange-100 text-orange-700",
+  ADJUSTMENT: "bg-gray-100 text-gray-700",
 };
 
 const statusLabels: Record<string, string> = {
@@ -26,6 +34,14 @@ const statusLabels: Record<string, string> = {
   CRITICAL: "Kritik",
   OVERDUE: "Muddati o'tgan",
   CURRENT: "Joriy",
+  REJECTED: "Rad etildi",
+  COMPLETED: "Bajarildi",
+  INCOMING: "Kirim",
+  OUTGOING: "Chiqim",
+  TRANSFER: "Ko'chirish",
+  RETURN_IN: "Qaytarish kirim",
+  RETURN_OUT: "Qaytarish chiqim",
+  ADJUSTMENT: "Tuzatish",
 };
 
 interface BadgeProps {

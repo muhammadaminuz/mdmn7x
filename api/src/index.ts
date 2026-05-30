@@ -19,6 +19,12 @@ import analyticsRouter from "./routes/analytics";
 import notificationsRouter from "./routes/notifications";
 import crmRouter from "./routes/crm";
 import routesRouter from "./routes/routes";
+import suppliersRouter from "./routes/suppliers";
+import stockMovementsRouter from "./routes/stock-movements";
+import returnsRouter from "./routes/returns";
+import expensesRouter from "./routes/expenses";
+import bonusesRouter from "./routes/bonuses";
+import gpsRouter from "./routes/gps";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -45,6 +51,12 @@ app.use("/api/analytics", analyticsRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/crm", crmRouter);
 app.use("/api/route-stops", routesRouter);
+app.use("/api/suppliers", suppliersRouter);
+app.use("/api/stock-movements", stockMovementsRouter);
+app.use("/api/returns", returnsRouter);
+app.use("/api/expenses", expensesRouter);
+app.use("/api/bonuses", bonusesRouter);
+app.use("/api/gps", gpsRouter);
 
 app.use(errorHandler);
 
