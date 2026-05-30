@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Plus, Search, Filter, Eye, CheckCircle, Printer, FileSpreadsheet, FileText, X, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plus, Search, Filter, Eye, CheckCircle, Printer, FileSpreadsheet } from "lucide-react";
 import api from "@/lib/api";
 import { formatCurrency, formatDateTime } from "@/lib/formatters";
 import { Badge } from "@/components/ui/Badge";
@@ -20,10 +21,8 @@ const statusOptions = [
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function monthStartStr() { const d = new Date(); d.setDate(1); return d.toISOString().slice(0, 10); }
 
-interface OrderItem { productId: number; productName: string; quantity: number; price: number; total: number; unit?: string; }
-interface NewOrderForm { customerId: number; agentId: number; discount: number; note: string; items: OrderItem[]; }
-
 export default function OrdersPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -34,23 +33,9 @@ export default function OrdersPage() {
   const [dateTo, setDateTo] = useState(todayStr());
   const [loading, setLoading] = useState(true);
   const [approvingId, setApprovingId] = useState<number | null>(null);
-  const [showModal, setShowModal] = useState(false);
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [agents, setAgents] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [saving, setSaving] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set());
-  const [form, setForm] = useState<NewOrderForm>({ customerId: 0, agentId: 0, discount: 0, note: "", items: [] });
 
   useEffect(() => { loadOrders(); }, [page, status, limit]);
-
-  useEffect(() => {
-    if (showModal) {
-      api.get("/customers", { params: { limit: 100 } }).then(r => setCustomers(r.data.items || r.data));
-      api.get("/agents", { params: { limit: 100 } }).then(r => setAgents(r.data.items || r.data));
-      api.get("/products", { params: { limit: 200 } }).then(r => setProducts(r.data.items || r.data));
-    }
-  }, [showModal]);
 
   async function loadOrders() {
     setLoading(true);
@@ -76,52 +61,6 @@ export default function OrdersPage() {
     } finally { setApprovingId(null); }
   }
 
-  function addItem() {
-    setForm(f => ({ ...f, items: [...f.items, { productId: 0, productName: "", quantity: 1, price: 0, total: 0, unit: "dona" }] }));
-  }
-
-  function updateItem(idx: number, field: string, value: any) {
-    setForm(f => {
-      const items = [...f.items];
-      items[idx] = { ...items[idx], [field]: value };
-      if (field === "productId") {
-        const p = products.find(p => p.id === Number(value));
-        if (p) { items[idx].productName = p.name; items[idx].price = p.wholesalePrice || p.price; items[idx].unit = "dona"; }
-      }
-      if (field === "quantity" || field === "price") {
-        items[idx].total = Number(items[idx].quantity) * Number(items[idx].price);
-      }
-      return { ...f, items };
-    });
-  }
-
-  function removeItem(idx: number) { setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) })); }
-
-  const subtotal = form.items.reduce((s, i) => s + i.total, 0);
-  const grandTotal = subtotal - (form.discount || 0);
-
-  async function handleSave() {
-    if (!form.customerId || !form.agentId || form.items.length === 0) {
-      alert("Mijoz, agent va kamida 1 ta mahsulot tanlang!"); return;
-    }
-    setSaving(true);
-    try {
-      const payload = {
-        customerId: form.customerId,
-        agentId: form.agentId,
-        discount: form.discount,
-        note: form.note,
-        items: form.items.map(i => ({ productId: i.productId, quantity: i.quantity, price: i.price, total: i.total })),
-      };
-      await api.post("/orders", payload);
-      setShowModal(false);
-      setForm({ customerId: 0, agentId: 0, discount: 0, note: "", items: [] });
-      loadOrders();
-    } catch (e: any) {
-      alert(e?.response?.data?.error || "Xato yuz berdi");
-    } finally { setSaving(false); }
-  }
-
   function toggleSelect(id: number) {
     setSelectedOrders(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   }
@@ -139,88 +78,93 @@ export default function OrdersPage() {
     const wb = XLSX.utils.book_new();
     const now = new Date().toLocaleDateString("uz-UZ");
     const companyName = "FMCG Distribution";
+    const companyDetails = "Toshkent sh. · Tel: +998 (90) 000-00-00 · STIR: 000000000";
 
-    // ===== VARAQ 1: JAMI NAKЛАДНАЯ =====
-    const sheet1Data: any[][] = [];
-    sheet1Data.push([`${companyName} - YÜKLAMA НАКЛАДНОЙ`]);
-    sheet1Data.push([`Sana: ${now}`, "", "", "", `Jami buyurtmalar: ${targetOrders.length} ta`]);
-    sheet1Data.push([]);
-    sheet1Data.push(["№", "Buyurtma №", "Mijoz", "Agent", "Mahsulot", "Birlik", "Miqdor", "Narx (so'm)", "Jami (so'm)"]);
+    // ===== VARAQ 1: JAMI HISOBOT (summary, one row per order) =====
+    const s1: any[][] = [];
+    s1.push([`${companyName} — Buyurtmalar hisoboti`]);
+    s1.push([`Davr: ${dateFrom} — ${dateTo}`, "", "", `Jami buyurtmalar: ${targetOrders.length} ta`]);
+    s1.push([]);
+    s1.push(["№", "Buyurtma №", "Sana", "Mijoz", "Agent", "Holat", "Mahsulot turi", "Chegirma (so'm)", "Jami summa (so'm)"]);
 
-    let rowNum = 1;
     let grandTotal = 0;
-    for (const order of targetOrders) {
-      const items = order.items || [];
-      if (items.length === 0) {
-        sheet1Data.push([rowNum++, order.orderNo, order.customerName, order.agentName, "-", "-", "-", "-", "-"]);
-      } else {
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          sheet1Data.push([
-            i === 0 ? rowNum++ : "",
-            i === 0 ? order.orderNo : "",
-            i === 0 ? order.customerName : "",
-            i === 0 ? order.agentName : "",
-            item.productName,
-            "dona",
-            item.quantity,
-            item.price,
-            item.total,
-          ]);
-          grandTotal += item.total;
-        }
-      }
-      sheet1Data.push(["", "", "", "", "", "", "", `${order.orderNo} jami:`, order.total]);
-      sheet1Data.push([]);
-    }
-    sheet1Data.push([]);
-    sheet1Data.push(["", "", "", "", "", "", "", "UMUMIY JAMI:", grandTotal]);
-    sheet1Data.push([]);
-    sheet1Data.push(["Tovarni berdi:", "", "", "", "Tovarni oldi:", "", "", "", ""]);
-    sheet1Data.push(["________________", "", "", "", "________________", "", "", "", ""]);
-    sheet1Data.push(["(Imzo)", "", "", "", "(Imzo)", "", "", "", ""]);
-
-    const ws1 = XLSX.utils.aoa_to_sheet(sheet1Data);
-    ws1["!cols"] = [{ wch: 4 }, { wch: 16 }, { wch: 24 }, { wch: 18 }, { wch: 28 }, { wch: 8 }, { wch: 8 }, { wch: 16 }, { wch: 16 }];
-    ws1["A1"] = { v: `${companyName} - YÜKLAMA НАКЛАДНОЙ`, t: "s" };
-    XLSX.utils.book_append_sheet(wb, ws1, "Jami Nakладная");
-
-    // ===== VARAQ 2: ALOHIDA NAKЛАДНАЯ =====
-    const sheet2Data: any[][] = [];
-    for (const order of targetOrders) {
+    let totalDiscount = 0;
+    targetOrders.forEach((order, idx) => {
       const items = order.items || [];
       const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString("uz-UZ") : now;
+      grandTotal += order.total || 0;
+      totalDiscount += order.discount || 0;
+      s1.push([
+        idx + 1,
+        order.orderNo,
+        orderDate,
+        order.customerName,
+        order.agentName,
+        order.status,
+        items.length,
+        order.discount || 0,
+        order.total || 0,
+      ]);
+    });
+    s1.push([]);
+    s1.push(["", "", "", "", "", "", "JAMI:", totalDiscount, grandTotal]);
 
-      sheet2Data.push([`НАКЛАДНАЯ № ${order.orderNo}`]);
-      sheet2Data.push([`Sana: ${orderDate}`]);
-      sheet2Data.push([]);
-      sheet2Data.push([`Yetkazib beruvchi: ${companyName}`]);
-      sheet2Data.push([`Oluvchi: ${order.customerName}`]);
-      sheet2Data.push([`Agent: ${order.agentName}`]);
-      sheet2Data.push([]);
-      sheet2Data.push(["№", "Mahsulot nomi", "Birlik", "Miqdor", "Narx (so'm)", "Jami (so'm)"]);
+    const ws1 = XLSX.utils.aoa_to_sheet(s1);
+    ws1["!cols"] = [{ wch: 4 }, { wch: 16 }, { wch: 12 }, { wch: 26 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 18 }];
+    ws1["!merges"] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws1, "Hisobot");
 
-      let orderSum = 0;
+    // ===== VARAQ 2: ALOHIDA НАКЛАДНАЯ (printable invoice per customer) =====
+    const s2: any[][] = [];
+    const merges: any[] = [];
+    const COLS = 6; // 0..5
+
+    const fullRow = (text: string) => { merges.push({ s: { r: s2.length, c: 0 }, e: { r: s2.length, c: COLS - 1 } }); s2.push([text]); };
+
+    targetOrders.forEach((order, oi) => {
+      const items = order.items || [];
+      const orderDate = order.createdAt ? new Date(order.createdAt).toLocaleDateString("uz-UZ") : now;
+      const subtotal = items.reduce((sum: number, it: any) => sum + (it.total || 0), 0);
+
+      // Header box
+      fullRow(`НАКЛАДНАЯ (Hisob-faktura) № ${order.orderNo}`);
+      fullRow(`Sana: ${orderDate}`);
+      s2.push([]);
+
+      // Supplier / Receiver
+      s2.push(["Yetkazib beruvchi (Topshiruvchi):", companyName, "", "Oluvchi (Qabul qiluvchi):", order.customerName, ""]);
+      s2.push(["", companyDetails, "", "Agent:", order.agentName, ""]);
+      s2.push([]);
+
+      // Items table header
+      s2.push(["№", "Mahsulot nomi", "Birlik", "Miqdor", "Narx (so'm)", "Summa (so'm)"]);
       items.forEach((item: any, i: number) => {
-        sheet2Data.push([i + 1, item.productName, "dona", item.quantity, item.price, item.total]);
-        orderSum += item.total;
+        s2.push([i + 1, item.productName, item.unit || "dona", item.quantity, item.price, item.total]);
       });
 
-      sheet2Data.push([]);
-      sheet2Data.push(["", "", "", "", "Jami:", orderSum]);
-      if (order.discount) sheet2Data.push(["", "", "", "", "Chegirma:", -order.discount]);
-      sheet2Data.push(["", "", "", "", "TO'LOV SUMMASI:", order.total]);
-      sheet2Data.push([]);
-      sheet2Data.push(["Tovarni berdi: ________________", "", "", "Tovarni oldi: ________________"]);
-      sheet2Data.push(["M.O.", "", "", "M.O."]);
-      sheet2Data.push([]);
-      sheet2Data.push(["────────────────────────────────────────────────────────────────────"]);
-      sheet2Data.push([]);
-    }
+      // Totals
+      s2.push(["", "", "", "", "Jami:", subtotal]);
+      if (order.discount) s2.push(["", "", "", "", "Chegirma:", -order.discount]);
+      s2.push(["", "", "", "", "TO'LOV SUMMASI:", order.total]);
+      s2.push([]);
 
-    const ws2 = XLSX.utils.aoa_to_sheet(sheet2Data);
-    ws2["!cols"] = [{ wch: 4 }, { wch: 32 }, { wch: 8 }, { wch: 8 }, { wch: 16 }, { wch: 16 }];
-    XLSX.utils.book_append_sheet(wb, ws2, "Alohida Nakладная");
+      // Signatures
+      s2.push(["Topshirdi: ___________________", "", "", "Qabul qildi: ___________________", "", ""]);
+      s2.push(["M.O.", "", "", "M.O.", "", ""]);
+      s2.push([]);
+      if (oi < targetOrders.length - 1) {
+        fullRow("══════════════════════════════════════════════════════════════════");
+        s2.push([]);
+      }
+    });
+
+    const ws2 = XLSX.utils.aoa_to_sheet(s2);
+    ws2["!cols"] = [{ wch: 6 }, { wch: 34 }, { wch: 8 }, { wch: 10 }, { wch: 16 }, { wch: 18 }];
+    ws2["!merges"] = merges;
+    XLSX.utils.book_append_sheet(wb, ws2, "Накладная");
 
     XLSX.writeFile(wb, `nakladnaya_${dateFrom}_${dateTo}.xlsx`);
   }
@@ -235,7 +179,7 @@ export default function OrdersPage() {
           <h2 className="text-xl font-semibold text-gray-900">Buyurtmalar</h2>
           <p className="text-sm text-gray-500 mt-0.5">Jami {total} ta buyurtma</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary">
+        <button onClick={() => router.push("/orders/new")} className="btn-primary">
           <Plus className="w-4 h-4" />
           Yangi buyurtma
         </button>
@@ -352,136 +296,6 @@ export default function OrdersPage() {
           </div>
         </div>
       </div>
-
-      {/* NEW ORDER MODAL */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900">Yangi buyurtma</h3>
-              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-              {/* Customer & Agent */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Mijoz *</label>
-                  <select value={form.customerId} onChange={e => setForm(f => ({ ...f, customerId: Number(e.target.value) }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value={0}>— Tanlang —</option>
-                    {customers.map((c: any) => <option key={c.id} value={c.id}>{c.companyName}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Agent *</label>
-                  <select value={form.agentId} onChange={e => setForm(f => ({ ...f, agentId: Number(e.target.value) }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                    <option value={0}>— Tanlang —</option>
-                    {agents.map((a: any) => <option key={a.id} value={a.id}>{a.fullName}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {/* Products */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700">Mahsulotlar *</label>
-                  <button onClick={addItem} className="text-sm text-brand-600 hover:underline flex items-center gap-1">
-                    <Plus className="w-3.5 h-3.5" /> Qo'shish
-                  </button>
-                </div>
-                {form.items.length === 0 && (
-                  <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-400">
-                    Hali mahsulot qo'shilmagan. "Qo'shish" tugmasini bosing.
-                  </div>
-                )}
-                <div className="space-y-2">
-                  {form.items.map((item, idx) => (
-                    <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-gray-50 rounded-lg p-2">
-                      <div className="col-span-5">
-                        <select value={item.productId}
-                          onChange={e => updateItem(idx, "productId", e.target.value)}
-                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
-                          <option value={0}>— Mahsulot —</option>
-                          {products.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.stock} dona)</option>)}
-                        </select>
-                      </div>
-                      <div className="col-span-2">
-                        <input type="number" min={1} placeholder="Miqdor" value={item.quantity}
-                          onChange={e => updateItem(idx, "quantity", Number(e.target.value))}
-                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                      </div>
-                      <div className="col-span-3">
-                        <input type="number" min={0} placeholder="Narx" value={item.price}
-                          onChange={e => updateItem(idx, "price", Number(e.target.value))}
-                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                      </div>
-                      <div className="col-span-1 text-sm font-medium text-gray-700 text-right">
-                        {formatCurrency(item.total)}
-                      </div>
-                      <div className="col-span-1 flex justify-end">
-                        <button onClick={() => removeItem(idx)} className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Discount & Note */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Chegirma (so'm)</label>
-                  <input type="number" min={0} value={form.discount}
-                    onChange={e => setForm(f => ({ ...f, discount: Number(e.target.value) }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Izoh</label>
-                  <input type="text" value={form.note}
-                    onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
-                    placeholder="Ixtiyoriy..."
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
-                </div>
-              </div>
-
-              {/* Totals */}
-              {form.items.length > 0 && (
-                <div className="bg-gray-50 rounded-xl p-4 space-y-1.5">
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>Jami (chegirmasiz):</span>
-                    <span>{formatCurrency(subtotal)} so'm</span>
-                  </div>
-                  {form.discount > 0 && (
-                    <div className="flex justify-between text-sm text-red-500">
-                      <span>Chegirma:</span>
-                      <span>-{formatCurrency(form.discount)} so'm</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-base font-bold text-gray-900 pt-1 border-t border-gray-200">
-                    <span>TO'LOV SUMMASI:</span>
-                    <span>{formatCurrency(grandTotal)} so'm</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
-              <button onClick={() => setShowModal(false)} className="btn-secondary">Bekor qilish</button>
-              <button onClick={handleSave} disabled={saving} className="btn-primary disabled:opacity-50">
-                {saving ? "Saqlanmoqda..." : "Buyurtma yaratish"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
