@@ -2,7 +2,7 @@ import "dotenv/config";
 import { Context, Markup, session, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 import { parseExpenseWithAI } from "./ai";
-import { appendOrAccumulateExpense, DateNotPreparedError, getFinalReportSummary } from "./sheets";
+import { appendOrAccumulateExpense, DateNotPreparedError, getFinalReportSummary, getSheetUrl } from "./sheets";
 import { DraftExpense } from "./types";
 
 interface SessionData {
@@ -25,6 +25,11 @@ const QUICK_CATEGORIES = ["Yoqilg'i", "Ta'mirlash", "Ijara", "Maosh", "Ofis xara
 
 const fmt = (n: number) => Math.round(n).toLocaleString("ru-RU").replace(/,/g, " ");
 
+async function sheetLinkKeyboard() {
+  const url = await getSheetUrl();
+  return Markup.inlineKeyboard([[Markup.button.url("📊 Google Sheets'ni ochish", url)]]);
+}
+
 bot.start(async (ctx) => {
   ctx.session = {};
   await ctx.reply(
@@ -36,10 +41,19 @@ bot.start(async (ctx) => {
       "",
       "Men summani va turini o'zim aniqlayman, tasdiqlaganingizdan so'ng balans faylingizga (Google Sheets) yoziladi.",
       "",
-      "📊 Joriy hisobotni ko'rish uchun /hisobot yuboring.",
+      "📊 Joriy hisobotni ko'rish uchun /hisobot, faylning o'zini ochish uchun /fayl yuboring.",
     ].join("\n"),
     { parse_mode: "Markdown" }
   );
+});
+
+bot.command("fayl", async (ctx) => {
+  try {
+    await ctx.reply("📊 Balans faylingiz (Google Sheets):", await sheetLinkKeyboard());
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("⚠️ Fayl havolasini olishda xatolik yuz berdi.");
+  }
 });
 
 bot.command("hisobot", async (ctx) => {
@@ -58,7 +72,7 @@ bot.command("hisobot", async (ctx) => {
     lines.push(
       summary.netSales !== null ? `📦 Sof sotish: ${fmt(summary.netSales)} so'm` : "📦 Sof sotish: topilmadi"
     );
-    await ctx.replyWithMarkdown(lines.join("\n"));
+    await ctx.replyWithMarkdown(lines.join("\n"), await sheetLinkKeyboard());
   } catch (err) {
     console.error(err);
     await ctx.reply("⚠️ Hisobotni o'qib bo'lmadi. Fayl ulanishini tekshiring.");
@@ -104,7 +118,8 @@ bot.action("confirm_save", async (ctx) => {
     const result = await appendOrAccumulateExpense(draft.date, draft.amount, draft.category);
     ctx.session.draft = undefined;
     await ctx.editMessageText(
-      `✅ Saqlandi! Kunlik jami: ${fmt(result.totalForDay)} so'm (${result.categoriesForDay})`
+      `✅ Saqlandi! Kunlik jami: ${fmt(result.totalForDay)} so'm (${result.categoriesForDay})`,
+      await sheetLinkKeyboard()
     );
   } catch (err) {
     if (err instanceof DateNotPreparedError) {

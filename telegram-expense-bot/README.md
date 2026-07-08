@@ -57,8 +57,9 @@ npm run dev
 - Botga oddiy xabar yozing: `50000 yoqilg'iga`
 - Bot summani, turini va sanani (odatda bugungi kun) aniqlab, tasdiqlash uchun qaytaradi:
   **✅ Saqlash** / **✏️ Turini o'zgartirish** / **❌ Bekor qilish**
-- Tasdiqlagach, ma'lumot Google Sheets balans fayliga tushadi va fayldagi mavjud formulalar orqali "Якуний хисобот"да avtomatik hisoblanadi.
+- Tasdiqlagach, ma'lumot Google Sheets balans fayliga tushadi va fayldagi mavjud formulalar orqali "Якуний хисобот"да avtomatik hisoblanadi. Saqlangandan so'ng faylning o'ziga ochiladigan tugma ham chiqadi.
 - `/hisobot` — joriy hisobotdan jami tushum, jami xarajat va sof sotishni o'qib beradi (mavjud formulalar natijasini o'qiydi, hech narsani qayta hisoblamaydi).
+- `/fayl` — Google Sheets balans faylini to'g'ridan-to'g'ri ochish uchun havola (aynan "Оборотка" varag'iga olib boradi).
 
 ## Muhim cheklov
 

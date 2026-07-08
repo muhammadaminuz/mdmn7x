@@ -101,6 +101,28 @@ export async function appendOrAccumulateExpense(date: Date, amount: number, cate
   return { row, totalForDay, categoriesForDay };
 }
 
+const sheetGidCache = new Map<string, number>();
+
+async function getSheetGid(sheetName: string): Promise<number | undefined> {
+  if (sheetGidCache.has(sheetName)) return sheetGidCache.get(sheetName);
+
+  const sheets = await getClient();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: spreadsheetId() });
+  for (const s of meta.data.sheets ?? []) {
+    if (s.properties?.title && s.properties.sheetId !== undefined && s.properties.sheetId !== null) {
+      sheetGidCache.set(s.properties.title, s.properties.sheetId);
+    }
+  }
+  return sheetGidCache.get(sheetName);
+}
+
+// Deep-links straight to the expenses tab so tapping it in Telegram opens the right place.
+export async function getSheetUrl(sheetName: string = EXPENSE_SHEET): Promise<string> {
+  const gid = await getSheetGid(sheetName);
+  const base = `https://docs.google.com/spreadsheets/d/${spreadsheetId()}/edit`;
+  return gid !== undefined ? `${base}#gid=${gid}` : base;
+}
+
 export async function getFinalReportSummary(): Promise<FinalReportSummary> {
   const sheets = await getClient();
   const res = await sheets.spreadsheets.values.get({
