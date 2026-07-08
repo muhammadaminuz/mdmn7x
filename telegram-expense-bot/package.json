@@ -1,16 +1,17 @@
 {
-  "name": "telegram-expense-bot",
+  "name": "xarajatlar-ai-bot",
   "version": "1.0.0",
-  "description": "Telegram bot for logging expenses/income into Google Sheets with monthly financial reports",
+  "description": "Xarajatlar AI — Telegram bot that logs distribution business expenses into a live Google Sheets balance file via AI-parsed free text, without touching existing formulas",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "import-sheet": "ts-node-dev --transpile-only scripts/import-to-sheets.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
     "dotenv": "^16.4.5",
-    "exceljs": "^4.4.0",
     "googleapis": "^140.0.1",
     "telegraf": "^4.16.3"
   },

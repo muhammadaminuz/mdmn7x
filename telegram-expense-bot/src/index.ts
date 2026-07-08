@@ -1,14 +1,12 @@
 import "dotenv/config";
 import { Context, Markup, session, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "./categories";
-import { buildMonthlyWorkbook } from "./excel";
-import { buildMonthlyReport, formatReportText } from "./report";
-import { appendRow, ensureSheetReady, fetchAllRows } from "./sheets";
-import { DraftEntry, LedgerRow } from "./types";
+import { parseExpenseWithAI } from "./ai";
+import { appendOrAccumulateExpense, DateNotPreparedError, getFinalReportSummary } from "./sheets";
+import { DraftExpense } from "./types";
 
 interface SessionData {
-  draft?: DraftEntry;
+  draft?: DraftExpense;
 }
 
 interface BotContext extends Context {
@@ -23,136 +21,129 @@ if (!BOT_TOKEN) {
 const bot = new Telegraf<BotContext>(BOT_TOKEN);
 bot.use(session({ defaultSession: (): SessionData => ({}) }));
 
-const MENU = Markup.keyboard([
-  ["➕ Xarajat", "➕ Daromad"],
-  ["📊 Oylik hisobot"],
-  ["❓ Yordam"],
-]).resize();
+const QUICK_CATEGORIES = ["Yoqilg'i", "Ta'mirlash", "Ijara", "Maosh", "Ofis xarajatlari", "Boshqa"];
 
-function userLabel(ctx: BotContext): string {
-  const from = ctx.from;
-  if (!from) return "noma'lum";
-  return from.username ? `@${from.username}` : [from.first_name, from.last_name].filter(Boolean).join(" ");
-}
-
-function categoryKeyboard(categories: string[]) {
-  return Markup.inlineKeyboard(
-    categories.map((c) => Markup.button.callback(c, `cat:${c}`)),
-    { columns: 2 }
-  );
-}
+const fmt = (n: number) => Math.round(n).toLocaleString("ru-RU").replace(/,/g, " ");
 
 bot.start(async (ctx) => {
   ctx.session = {};
   await ctx.reply(
-    "👋 Xarajat va daromadlaringizni shu bot orqali yozib boring — ular avtomatik Google Sheets jadvaliga tushadi. Oy oxirida esa /hisobot orqali moliyaviy natijani ko'rasiz.",
-    MENU
-  );
-});
-
-bot.hears("❓ Yordam", async (ctx) => {
-  await ctx.reply(
     [
-      "➕ Xarajat / ➕ Daromad — yangi yozuv qo'shish",
-      "📊 Oylik hisobot — joriy oy bo'yicha xulosa (matn + Excel fayl)",
+      "🤖 *Xarajatlar AI* ga xush kelibsiz!",
       "",
-      "Har bir yozuv: summa → kategoriya → izoh (ixtiyoriy) tartibida so'raladi.",
+      "Xarajatingizni oddiy matn bilan yozing, masalan:",
+      '_"50000 yoqilg\'iga"_ yoki _"ofisga 200000 ijaraga to\'ladik"_',
+      "",
+      "Men summani va turini o'zim aniqlayman, tasdiqlaganingizdan so'ng balans faylingizga (Google Sheets) yoziladi.",
+      "",
+      "📊 Joriy hisobotni ko'rish uchun /hisobot yuboring.",
     ].join("\n"),
-    MENU
+    { parse_mode: "Markdown" }
   );
 });
 
-bot.hears("➕ Xarajat", async (ctx) => {
-  ctx.session.draft = { type: "Xarajat", step: "amount" };
-  await ctx.reply("💸 Xarajat summasini kiriting (masalan: 50000):", Markup.removeKeyboard());
-});
-
-bot.hears("➕ Daromad", async (ctx) => {
-  ctx.session.draft = { type: "Daromad", step: "amount" };
-  await ctx.reply("💰 Daromad summasini kiriting (masalan: 500000):", Markup.removeKeyboard());
-});
-
-bot.hears("📊 Oylik hisobot", async (ctx) => sendMonthlyReport(ctx));
-bot.command("hisobot", async (ctx) => sendMonthlyReport(ctx));
-
-async function sendMonthlyReport(ctx: BotContext) {
-  await ctx.reply("⏳ Hisobot tayyorlanmoqda...");
-  const rows = await fetchAllRows();
-  const now = new Date();
-  const report = buildMonthlyReport(rows, now.getFullYear(), now.getMonth());
-
-  await ctx.replyWithMarkdown(formatReportText(report), MENU);
-
-  const workbook = await buildMonthlyWorkbook(report);
-  await ctx.replyWithDocument({
-    source: workbook,
-    filename: `hisobot-${report.monthLabel.replace(" ", "-")}.xlsx`,
-  });
-}
-
-bot.action(/^cat:(.+)$/, async (ctx) => {
-  const draft = ctx.session.draft;
-  if (!draft || draft.step !== "category") {
-    await ctx.answerCbQuery();
-    return;
+bot.command("hisobot", async (ctx) => {
+  await ctx.reply("⏳ Hisobot o'qilmoqda...");
+  try {
+    const summary = await getFinalReportSummary();
+    const lines = [`📊 *${summary.title}*`, ""];
+    lines.push(
+      summary.totalRevenue !== null ? `💰 Jami tushum: ${fmt(summary.totalRevenue)} so'm` : "💰 Jami tushum: topilmadi"
+    );
+    lines.push(
+      summary.totalExpense !== null
+        ? `💸 Jami xarajat: ${fmt(summary.totalExpense)} so'm`
+        : "💸 Jami xarajat: topilmadi"
+    );
+    lines.push(
+      summary.netSales !== null ? `📦 Sof sotish: ${fmt(summary.netSales)} so'm` : "📦 Sof sotish: topilmadi"
+    );
+    await ctx.replyWithMarkdown(lines.join("\n"));
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("⚠️ Hisobotni o'qib bo'lmadi. Fayl ulanishini tekshiring.");
   }
-  draft.category = ctx.match[1];
-  draft.step = "note";
-  await ctx.answerCbQuery();
-  await ctx.editMessageReplyMarkup(undefined);
-  await ctx.reply("📝 Izoh qo'shasizmi? Yozing yoki \"-\" yuboring (o'tkazib yuborish uchun).");
 });
 
 bot.on(message("text"), async (ctx) => {
-  const draft = ctx.session.draft;
-  if (!draft) return; // not in a data-entry flow, ignore (menu buttons handled above)
+  if (ctx.message.text.startsWith("/")) return;
 
-  if (draft.step === "amount") {
-    const amount = Number(ctx.message.text.replace(/[^\d.]/g, ""));
-    if (!amount || amount <= 0) {
-      await ctx.reply("Iltimos, to'g'ri summa kiriting (faqat raqam), masalan: 50000");
-      return;
-    }
-    draft.amount = amount;
-    draft.step = "category";
-    const categories = draft.type === "Xarajat" ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
-    await ctx.reply("📂 Kategoriyani tanlang:", categoryKeyboard(categories));
+  const text = ctx.message.text.trim();
+  const parsed = await parseExpenseWithAI(text);
+
+  if (!parsed) {
+    await ctx.reply("Summani aniqlay olmadim. Iltimos, summani ham yozing, masalan: \"50000 yoqilg'iga\"");
     return;
   }
 
-  if (draft.step === "note") {
-    const note = ctx.message.text.trim() === "-" ? "" : ctx.message.text.trim();
-    const row: LedgerRow = {
-      date: new Date().toISOString().slice(0, 10),
-      type: draft.type,
-      category: draft.category ?? "Boshqa",
-      amount: draft.amount ?? 0,
-      note,
-      user: userLabel(ctx),
-    };
-
-    await appendRow(row);
-    ctx.session.draft = undefined;
-
-    const emoji = draft.type === "Xarajat" ? "💸" : "💰";
-    await ctx.reply(
-      `✅ Saqlandi: ${emoji} ${row.amount.toLocaleString("ru-RU")} so'm — ${row.category}`,
-      MENU
-    );
-    return;
-  }
+  ctx.session.draft = { amount: parsed.amount, category: parsed.category, date: parsed.date, rawText: text };
+  await showConfirmation(ctx);
 });
 
-async function main() {
-  await ensureSheetReady();
-  await bot.launch();
-  console.log("Telegram expense bot ishga tushdi.");
+async function showConfirmation(ctx: BotContext) {
+  const draft = ctx.session.draft;
+  if (!draft) return;
+
+  const dateLabel = draft.date.toLocaleDateString("uz-UZ", { day: "numeric", month: "long" });
+  await ctx.reply(
+    `💸 ${fmt(draft.amount)} so'm — ${draft.category} — ${dateLabel}\n\nTasdiqlaysizmi?`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback("✅ Saqlash", "confirm_save")],
+      [Markup.button.callback("✏️ Turini o'zgartirish", "confirm_edit")],
+      [Markup.button.callback("❌ Bekor qilish", "confirm_cancel")],
+    ])
+  );
 }
 
-main().catch((err) => {
-  console.error("Botni ishga tushirishda xatolik:", err);
-  process.exit(1);
+bot.action("confirm_save", async (ctx) => {
+  const draft = ctx.session.draft;
+  await ctx.answerCbQuery();
+  if (!draft) return;
+
+  try {
+    const result = await appendOrAccumulateExpense(draft.date, draft.amount, draft.category);
+    ctx.session.draft = undefined;
+    await ctx.editMessageText(
+      `✅ Saqlandi! Kunlik jami: ${fmt(result.totalForDay)} so'm (${result.categoriesForDay})`
+    );
+  } catch (err) {
+    if (err instanceof DateNotPreparedError) {
+      await ctx.editMessageText(`⚠️ ${err.message}\nAvval faylda ushbu sana uchun qator tayyorlang.`);
+    } else {
+      console.error(err);
+      await ctx.editMessageText("⚠️ Faylga yozishda xatolik yuz berdi. Keyinroq qayta urinib ko'ring.");
+    }
+  }
 });
+
+bot.action("confirm_cancel", async (ctx) => {
+  ctx.session.draft = undefined;
+  await ctx.answerCbQuery();
+  await ctx.editMessageText("❌ Bekor qilindi.");
+});
+
+bot.action("confirm_edit", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup(undefined);
+  await ctx.reply(
+    "📂 To'g'ri turini tanlang:",
+    Markup.inlineKeyboard(
+      QUICK_CATEGORIES.map((c) => Markup.button.callback(c, `pickcat:${c}`)),
+      { columns: 2 }
+    )
+  );
+});
+
+bot.action(/^pickcat:(.+)$/, async (ctx) => {
+  const draft = ctx.session.draft;
+  await ctx.answerCbQuery();
+  if (!draft) return;
+  draft.category = ctx.match[1];
+  await ctx.deleteMessage().catch(() => undefined);
+  await showConfirmation(ctx);
+});
+
+bot.launch().then(() => console.log("Xarajatlar AI boti ishga tushdi."));
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));

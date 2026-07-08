@@ -1,27 +1,19 @@
-export type EntryType = "Xarajat" | "Daromad";
-
-export interface LedgerRow {
-  date: string; // ISO date, YYYY-MM-DD
-  type: EntryType;
-  category: string;
+export interface ParsedExpense {
   amount: number;
-  note: string;
-  user: string;
+  category: string;
+  date: Date;
 }
 
-export interface DraftEntry {
-  type: EntryType;
-  amount?: number;
-  category?: string;
-  step: "amount" | "category" | "note";
+export interface DraftExpense {
+  amount: number;
+  category: string;
+  date: Date;
+  rawText: string;
 }
 
-export interface MonthlyReport {
-  monthLabel: string;
-  totalExpense: number;
-  totalIncome: number;
-  profit: number;
-  categoryTotals: { category: string; amount: number }[];
-  weeklyTotals: { label: string; expense: number; income: number }[];
-  rows: LedgerRow[];
+export interface FinalReportSummary {
+  title: string;
+  totalRevenue: number | null;
+  totalExpense: number | null;
+  netSales: number | null;
 }

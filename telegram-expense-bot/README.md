@@ -1,61 +1,76 @@
-# Telegram Xarajat Boti (Google Sheets integratsiyasi)
+# Xarajatlar AI
 
-Telegram bot orqali xarajat va daromadlarni yozib boring — har bir yozuv real vaqtda Google Sheets jadvaliga tushadi. Istalgan payt yoki oy oxirida `/hisobot` buyrug'i bilan kategoriya bo'yicha xarajatlar, haftalik dinamika va foyda/zarar hisobini matn va Excel (.xlsx) fayl ko'rinishida olasiz.
+Distribyutsiya biznesi uchun Telegram bot: xodim botga erkin matn bilan xarajat yozadi ("50000 yoqilg'iga"), AI summani va turini aniqlaydi, tasdiqlangandan so'ng ma'lumot **to'g'ridan-to'g'ri sizning mavjud balans faylingizga (Google Sheets)** tushadi — fayldagi hech qanday formula o'zgartirilmaydi yoki buzilmaydi.
+
+## Fayl bilan qanday ishlaydi
+
+Yuklagan balans faylingiz (`DS___2026_2.xlsx`) tekshirildi. Unda `Оборотка` varag'ida allaqachon shu maqsad uchun ajratilgan, bo'sh **"харажатлар"** bloki bor (`V`/`W`/`X` ustunlari: сана / сумма / харажат тури), va bu blok `Якуний хисобот` varag'idagi "Жами харажат" yakuniy formulasiga avtomatik qo'shiladi.
+
+Bot shu blokka yozadi, lekin **faqat mavjud kun qatoriga**:
+- Botga yozilgan xarajat sanasiga mos qator `Оборотка` varag'ida (A ustunidagi sana bo'yicha) qidiriladi.
+- Agar shu kun uchun qator topilsa — summa o'sha qatordagi mavjud summaga **qo'shiladi** (bir kunda bir nechta xarajat bo'lsa ham to'g'ri jamlanadi), turi эса vergul bilan qo'shiladi.
+- Agar sana uchun qator hali tayyorlanmagan bo'lsa (masalan, yangi oy hali fayl shabloniga qo'shilmagan), bot yozmaydi va foydalanuvchiga ogohlantirish yuboradi — bu formulalarni tasodifan buzib qo'ymaslik uchun.
+- Bot hech qachon yangi qator qo'shmaydi, formula katakchalariga tegmaydi, boshqa varaqlarni (`761 VMA`, `карз`, `склад` va h.k.) o'zgartirmaydi.
 
 ## Sozlash
 
-### 1. Telegram bot yaratish
-1. Telegram'da [@BotFather](https://t.me/BotFather) bilan suhbat oching.
-2. `/newbot` buyrug'ini yuboring va nomini tanlang.
-3. Sizga beriladigan tokenni saqlang — bu `BOT_TOKEN`.
+### 1. Telegram bot
+1. [@BotFather](https://t.me/BotFather) orqali `/newbot` — nomini masalan **Xarajatlar AI** deb qo'ying.
+2. Tokenni saqlang — `BOT_TOKEN`.
 
-### 2. Google Sheets va Service Account
-1. [Google Cloud Console](https://console.cloud.google.com/) da yangi loyiha yarating (yoki mavjudidan foydalaning).
-2. **Google Sheets API** ni yoqing (APIs & Services → Enable APIs).
-3. **Service Account** yarating (IAM & Admin → Service Accounts → Create Service Account).
-4. Service account uchun JSON kalit yarating va yuklab oling — uni loyihaga `service-account.json` nomi bilan saqlang (bu fayl `.gitignore` orqali repo'ga tushmaydi).
-5. Yangi Google Sheets jadval yarating va uni service account'ning email manzili bilan (masalan `xxx@xxx.iam.gserviceaccount.com`) **Editor** huquqi bilan ulashing.
-6. Jadval URL'idagi ID'ni (`/d/` va `/edit` orasidagi qism) `SPREADSHEET_ID` sifatida saqlang.
+### 2. Google Cloud + Service Account
+1. [Google Cloud Console](https://console.cloud.google.com/) da loyiha oching, **Google Sheets API** va **Google Drive API** larni yoqing.
+2. Service Account yarating, JSON kalitini yuklab, `service-account.json` nomi bilan shu papkaga saqlang (repo'ga tushmaydi, `.gitignore`'da).
 
-### 3. O'rnatish
+### 3. Balans faylini Google Sheets'ga yuklash
+
+Bu skript sizning `.xlsx` faylingizni Google Drive'ga Google Sheets sifatida yuklaydi — **import paytida Google formulalarni avtomatik saqlab qoladi**, hech narsa qo'lda o'zgartirish shart emas:
 
 ```bash
 cd telegram-expense-bot
 npm install
 cp .env.example .env
-# .env faylini to'ldiring: BOT_TOKEN, SPREADSHEET_ID, GOOGLE_SERVICE_ACCOUNT_KEY_FILE
+# .env faylida GOOGLE_SERVICE_ACCOUNT_KEY_FILE ni to'g'rilang
+
+npm run import-sheet -- /path/to/DS___2026_2.xlsx sizning@gmail.com
+```
+
+Skript oxirida chiqadigan `SPREADSHEET_ID` ni `.env` fayliga yozing.
+
+> Fayl service account nomidan yaratiladi, shuning uchun uni real hisobingiz bilan ulashish (skriptga email bergan holda) shart — aks holda uni faqat service account ko'radi.
+
+### 4. AI (ixtiyoriy, lekin tavsiya etiladi)
+
+`ANTHROPIC_API_KEY` ni `.env` ga qo'ysangiz, bot xabarni to'liq erkin matn sifatida tushunadi (masalan "bugun mashinaga ta'mirlash uchun 350 ming to'ladik"). Kalit bo'lmasa, bot oddiy qoidaviy usulga o'tadi: xabardagi birinchi sonni summa, qolganini tur sifatida oladi.
+
+### 5. Ishga tushirish
+
+```bash
 npm run dev
 ```
 
 ## Foydalanish
 
-- **➕ Xarajat** / **➕ Daromad** — summani, kategoriyani va izohni ketma-ket so'raydi, so'ng Google Sheets'ga yozadi.
-- **📊 Oylik hisobot** (yoki `/hisobot`) — joriy oy uchun:
-  - jami xarajat, jami daromad, foyda/zarar
-  - kategoriya bo'yicha xarajatlar taqsimoti
-  - haftalik dinamika
-  - va shu ma'lumotlar bilan tayyor `.xlsx` fayl (Xulosa + Tafsilotlar varaqlari)
+- Botga oddiy xabar yozing: `50000 yoqilg'iga`
+- Bot summani, turini va sanani (odatda bugungi kun) aniqlab, tasdiqlash uchun qaytaradi:
+  **✅ Saqlash** / **✏️ Turini o'zgartirish** / **❌ Bekor qilish**
+- Tasdiqlagach, ma'lumot Google Sheets balans fayliga tushadi va fayldagi mavjud formulalar orqali "Якуний хисобот"да avtomatik hisoblanadi.
+- `/hisobot` — joriy hisobotdan jami tushum, jami xarajat va sof sotishni o'qib beradi (mavjud formulalar natijasini o'qiydi, hech narsani qayta hisoblamaydi).
+
+## Muhim cheklov
+
+`Якуний хисобот` varag'idagi yakuniy formula (masalan `SUM(Оборотка!W3:W33)`) aniq qator oralig'iga bog'langan — bu odatda bir oylik hisobot shabloni. **Yangi oy boshlanganda**, faylda shu oy uchun kunlik qatorlar (sanalar) tayyorlanishi kerak (odatdagidek, faylni tayyorlagan kishi tomonidan) — shundan keyingina bot o'sha kunlar uchun yoza oladi. Bu qadam avtomatlashtirilmagan, chunki u yakuniy hisobot formulalarining tuzilishini o'zgartirishni talab qiladi va xato qilingan taqdirda moliyaviy hisobotni buzishi mumkin.
 
 ## Loyiha tuzilishi
 
 ```
 telegram-expense-bot/
 ├── src/
-│   ├── index.ts       # Bot buyruqlari va suhbat oqimi (Telegraf)
-│   ├── sheets.ts       # Google Sheets API bilan ishlash (append/read)
-│   ├── report.ts       # Oylik hisobotni hisoblash va matn shaklida formatlash
-│   ├── excel.ts         # .xlsx fayl generatsiya qilish (exceljs)
-│   ├── categories.ts     # Xarajat/daromad kategoriyalari
-│   └── types.ts            # Umumiy TypeScript turlari
-├── .env.example
-└── package.json
+│   ├── index.ts     # Bot oqimi: AI orqali tahlil → tasdiqlash → yozish
+│   ├── ai.ts         # Anthropic API bilan erkin matnni tahlil qilish (+ zaxira qoida asosidagi usul)
+│   ├── sheets.ts       # Google Sheets bilan ishlash: sanaga mos qatorni topish, W/X ustunlariga yozish
+│   └── types.ts          # Umumiy TypeScript turlari
+├── scripts/
+│   └── import-to-sheets.ts  # Lokal .xlsx faylni Google Sheets'ga yuklovchi bir martalik skript
+└── .env.example
 ```
-
-## Ishlab chiqarishga chiqarish
-
-```bash
-npm run build
-npm start
-```
-
-Botni doimiy ishlab turishi uchun `pm2`, `systemd` yoki Docker konteyneridan foydalaning.
