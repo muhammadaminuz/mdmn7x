@@ -1,4 +1,5 @@
 import { google, sheets_v4 } from "googleapis";
+import { Product } from "./products";
 import { DebtFields, FactoryPaymentFields, FinalReportSummary } from "./types";
 
 const EXPENSE_SHEET = "Оборотка";
@@ -18,6 +19,18 @@ const DEBT_SHEET = "карз";
 const DEBT_SCAN_ROWS = 500;
 
 const REPORT_SHEET = "Якуний хисобот";
+
+export const TRUCK_SHEETS = ["761 VMA", "682 NMA", "763 VMA", "170 XLA", "738 VMA", "726 VMA"];
+const TRUCK_BLOCK_SIZE = 144; // each calendar day occupies a fixed 144-row block on these sheets
+const TRUCK_PRODUCT_OFFSET = 2; // product row = block header row + 2 + productIndex
+const TRUCK_SOLD_COL = "D"; // колво
+const TRUCK_RETURNED_COL = "E"; // возврат
+const TRUCK_BLOCK_COUNT = 30; // days currently labeled (see migrate-vma-dates: June 2026)
+
+const CATALOG_SHEET = "склад";
+const CATALOG_COL = "B";
+const CATALOG_START_ROW = 3;
+const CATALOG_MAX_ROWS = 200;
 
 export class DateNotPreparedError extends Error {
   constructor(date: Date) {
@@ -219,6 +232,83 @@ export async function appendDebtEntry(fields: DebtFields): Promise<{ row: number
   });
 
   return { row };
+}
+
+let catalogCache: Product[] | null = null;
+
+export async function getProductCatalog(): Promise<Product[]> {
+  if (catalogCache) return catalogCache;
+
+  const sheets = await getClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: spreadsheetId(),
+    range: `${CATALOG_SHEET}!${CATALOG_COL}${CATALOG_START_ROW}:${CATALOG_COL}${CATALOG_START_ROW + CATALOG_MAX_ROWS}`,
+  });
+
+  const values = res.data.values ?? [];
+  const products: Product[] = [];
+  for (let i = 0; i < values.length; i++) {
+    const name = String(values[i]?.[0] ?? "").trim();
+    if (!name) break; // true end of the list — but "ЖАМИ" subtotal rows do NOT end it,
+    // they're divider rows that must stay in the array to keep every later product's
+    // index aligned with its actual row on the truck sheets.
+    products.push({ index: i, name, isSubtotal: name.toLowerCase() === "жами" });
+  }
+  catalogCache = products;
+  return products;
+}
+
+async function findTruckHeaderRow(truckSheet: string, date: Date): Promise<number> {
+  const sheets = await getClient();
+  const headerRows = Array.from({ length: TRUCK_BLOCK_COUNT }, (_, block) => 1 + block * TRUCK_BLOCK_SIZE);
+
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: spreadsheetId(),
+    ranges: headerRows.map((r) => `'${truckSheet}'!D${r}`),
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+
+  const valueRanges = res.data.valueRanges ?? [];
+  for (let i = 0; i < headerRows.length; i++) {
+    const raw = valueRanges[i]?.values?.[0]?.[0];
+    if (typeof raw === "number" && sameDay(serialToDate(raw), date)) {
+      return headerRows[i];
+    }
+  }
+  throw new DateNotPreparedError(date);
+}
+
+export interface TruckSalesEntry {
+  productIndex: number;
+  productName: string;
+  sold: number;
+  returned: number;
+}
+
+// Writes every product line for one truck/day in a single batch call, sharing one
+// header-row lookup instead of repeating it per product.
+export async function setTruckSalesBatch(
+  truckSheet: string,
+  date: Date,
+  entries: TruckSalesEntry[]
+): Promise<{ row: number; entry: TruckSalesEntry }[]> {
+  const sheets = await getClient();
+  const headerRow = await findTruckHeaderRow(truckSheet, date);
+
+  const results = entries.map((entry) => ({ row: headerRow + TRUCK_PRODUCT_OFFSET + entry.productIndex, entry }));
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: spreadsheetId(),
+    requestBody: {
+      valueInputOption: "RAW",
+      data: results.map(({ row, entry }) => ({
+        range: `'${truckSheet}'!${TRUCK_SOLD_COL}${row}:${TRUCK_RETURNED_COL}${row}`,
+        values: [[entry.sold, entry.returned]],
+      })),
+    },
+  });
+
+  return results;
 }
 
 const sheetGidCache = new Map<string, number>();

@@ -2,21 +2,33 @@ import "dotenv/config";
 import { Context, Markup, session, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 import { parseExpenseWithAI, parseStandaloneDate } from "./ai";
+import { MatchResult, parseSalesLines } from "./products";
 import {
   appendDebtEntry,
   appendFactoryPayment,
   appendOrAccumulateExpense,
   DateNotPreparedError,
   getFinalReportSummary,
+  getProductCatalog,
   getSheetUrl,
   SheetCapacityError,
   setBankReceipt,
+  setTruckSalesBatch,
+  TRUCK_SHEETS,
 } from "./sheets";
 import { ActiveForm, DraftExpense, FieldDef, FormFlow } from "./types";
+
+interface TruckSalesDraft {
+  truck?: string;
+  date?: Date;
+  step: "date" | "products";
+  matches?: MatchResult[];
+}
 
 interface SessionData {
   draft?: DraftExpense;
   form?: ActiveForm;
+  truckSales?: TruckSalesDraft;
 }
 
 interface BotContext extends Context {
@@ -35,7 +47,7 @@ const QUICK_CATEGORIES = ["Yoqilg'i", "Ta'mirlash", "Ijara", "Maosh", "Ofis xara
 const FACTORY_SUPPLIERS = ["MARWIN", "RICOMEL", "IMIR-TRADE"];
 
 const MENU = Markup.keyboard([
-  ["➕ Xarajat"],
+  ["➕ Xarajat", "🚚 Kunlik savdo"],
   ["🧾 Qarz (hisob-faktura)", "🏭 Zavodga to'lov"],
   ["🏦 Bank tushumi"],
   ["📊 Hisobot", "📊 Fayl"],
@@ -58,6 +70,7 @@ bot.start(async (ctx) => {
       "Bu bot orqali balans faylingizga (Google Sheets) to'g'ridan-to'g'ri yozishingiz mumkin — fayldagi formulalar hech qachon buzilmaydi.",
       "",
       "💸 *Xarajat* — oddiy matn bilan yozing: \"50000 yoqilg'iga\"",
+      "🚚 *Kunlik savdo* — mashina bo'yicha sotilgan/qaytgan mahsulotlar",
       "🧾 *Qarz* — yangi mijoz hisob-fakturasi",
       "🏭 *Zavodga to'lov* — yetkazib beruvchiga to'lov",
       "🏦 *Bank tushumi* — kunlik terminal tushumini bankka tasdiqlash",
@@ -71,6 +84,7 @@ bot.start(async (ctx) => {
 bot.command("bekor", async (ctx) => {
   ctx.session.draft = undefined;
   ctx.session.form = undefined;
+  ctx.session.truckSales = undefined;
   await ctx.reply("❌ Bekor qilindi.", MENU);
 });
 
@@ -121,6 +135,7 @@ async function sendReport(ctx: BotContext) {
 
 bot.hears("➕ Xarajat", async (ctx) => {
   ctx.session.form = undefined;
+  ctx.session.truckSales = undefined;
   await ctx.reply("Xarajatni yozing, masalan: \"50000 yoqilg'iga\" yoki \"5-iyun 200000 ustaga\"");
 });
 
@@ -218,6 +233,7 @@ bot.hears("🏦 Bank tushumi", (ctx) => startForm(ctx, "bank", BANK_FIELDS));
 
 async function startForm(ctx: BotContext, flow: FormFlow, fields: FieldDef[]) {
   ctx.session.draft = undefined;
+  ctx.session.truckSales = undefined;
   ctx.session.form = { flow, fields, index: 0, values: {} };
   await ctx.reply("Istalgan payt bekor qilish uchun /bekor yozing.", Markup.removeKeyboard());
   await askCurrentField(ctx);
@@ -379,6 +395,118 @@ bot.action("form_save", async (ctx) => {
   }
 });
 
+// ---------- Kunlik savdo (per-truck daily product sales, free-text list) ----------
+
+bot.hears("🚚 Kunlik savdo", async (ctx) => {
+  ctx.session.draft = undefined;
+  ctx.session.form = undefined;
+  ctx.session.truckSales = undefined;
+  await ctx.reply(
+    "🚚 Qaysi mashina?",
+    Markup.inlineKeyboard(
+      TRUCK_SHEETS.map((t) => Markup.button.callback(t, `truck:${t}`)),
+      { columns: 2 }
+    )
+  );
+});
+
+bot.action(/^truck:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.session.truckSales = { truck: ctx.match[1], step: "date" };
+  await ctx.editMessageReplyMarkup(undefined).catch(() => undefined);
+  await ctx.reply("📅 Qaysi kun uchun? (\"-\" = bugun)", Markup.removeKeyboard());
+});
+
+async function handleTruckSalesInput(ctx: BotContext, text: string) {
+  const draft = ctx.session.truckSales;
+  if (!draft) return;
+
+  if (draft.step === "date") {
+    const date = parseStandaloneDate(text);
+    if (!date) {
+      await ctx.reply("Sanani tushunmadim, qaytadan urinib ko'ring (masalan 5-iyun yoki \"-\").");
+      return;
+    }
+    draft.date = date;
+    draft.step = "products";
+    await ctx.reply(
+      [
+        "📦 Endi sotilgan/qaytgan mahsulotlarni yozing, har birini yangi qatorda:",
+        "MahsulotNomi SotilganSoni QaytganSoni",
+        "",
+        "Masalan:",
+        "Манго 5 1",
+        "Абрикос 3",
+      ].join("\n")
+    );
+    return;
+  }
+
+  if (draft.step === "products") {
+    const catalog = await getProductCatalog();
+    const matches = parseSalesLines(text, catalog);
+    draft.matches = matches;
+
+    const lines = ["📋 Natija:"];
+    for (const m of matches) {
+      if (m.product) {
+        lines.push(`✅ ${m.product.name}: ${m.sold} sotildi, ${m.returned} qaytdi`);
+      } else {
+        lines.push(`⚠️ "${m.line}" — mahsulot topilmadi yoki bir nechta mos keldi, o'tkazib yuboriladi`);
+      }
+    }
+
+    const matchedCount = matches.filter((m) => m.product).length;
+    if (matchedCount === 0) {
+      lines.push("", "Hech qanday mahsulot tanilmadi. Qaytadan urinib ko'ring yoki /bekor yozing.");
+      await ctx.reply(lines.join("\n"));
+      return;
+    }
+
+    lines.push("", "Tasdiqlaysizmi?");
+    await ctx.reply(
+      lines.join("\n"),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("✅ Saqlash", "truck_save")],
+        [Markup.button.callback("❌ Bekor qilish", "truck_cancel")],
+      ])
+    );
+  }
+}
+
+bot.action("truck_cancel", async (ctx) => {
+  ctx.session.truckSales = undefined;
+  await ctx.answerCbQuery();
+  await ctx.editMessageText("❌ Bekor qilindi.");
+  await ctx.reply("Menyu:", MENU);
+});
+
+bot.action("truck_save", async (ctx) => {
+  const draft = ctx.session.truckSales;
+  await ctx.answerCbQuery();
+  if (!draft || !draft.truck || !draft.matches) return;
+
+  try {
+    const entries = draft.matches
+      .filter((m) => m.product)
+      .map((m) => ({ productIndex: m.product!.index, productName: m.product!.name, sold: m.sold, returned: m.returned }));
+
+    const results = await setTruckSalesBatch(draft.truck, draft.date ?? new Date(), entries);
+    ctx.session.truckSales = undefined;
+    await ctx.editMessageText(`✅ ${results.length} ta mahsulot uchun ${draft.truck} yozildi!`, await sheetLinkKeyboard());
+    await ctx.reply("Menyu:", MENU);
+  } catch (err) {
+    if (err instanceof DateNotPreparedError) {
+      await ctx.editMessageText(`⚠️ ${err.message}\nAvval faylda ushbu sana uchun kunlik blok tayyorlang.`);
+    } else {
+      console.error(err);
+      await ctx.editMessageText("⚠️ Faylga yozishda xatolik yuz berdi. Keyinroq qayta urinib ko'ring.");
+    }
+    ctx.session.truckSales = undefined;
+    await ctx.reply("Menyu:", MENU);
+  }
+});
+
 // ---------- Catch-all text handler ----------
 
 bot.on(message("text"), async (ctx) => {
@@ -387,6 +515,11 @@ bot.on(message("text"), async (ctx) => {
 
   if (ctx.session.form) {
     await handleFormTextInput(ctx, text);
+    return;
+  }
+
+  if (ctx.session.truckSales) {
+    await handleTruckSalesInput(ctx, text);
     return;
   }
 
