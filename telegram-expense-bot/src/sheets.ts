@@ -1,11 +1,21 @@
 import { google, sheets_v4 } from "googleapis";
-import { FinalReportSummary } from "./types";
+import { DebtFields, FactoryPaymentFields, FinalReportSummary } from "./types";
 
 const EXPENSE_SHEET = "Оборотка";
 const EXPENSE_DATE_COL = "A"; // authoritative calendar-day column already filled in the workbook
 const EXPENSE_VALUE_RANGE = "W"; // сумма — summed by the existing Якуний хисобот formula
 const EXPENSE_TYPE_RANGE = "X"; // харажат тури
 const EXPENSE_SCAN_ROWS = 400; // generous buffer past the current ~160-row block
+const BANK_RECEIPT_COL = "K"; // Банкга келиб тушган — same date-indexed rows as the expense block
+
+const FACTORY_DATE_COL = "P";
+const FACTORY_SUPPLIER_COL = "Q";
+const FACTORY_AMOUNT_COL = "R";
+const FACTORY_NOTE_COL = "S";
+const FACTORY_MAX_ROW = 33; // matches Якуний хисобот's SUMIF(Оборотка!Q3:Q33, ...) range exactly
+
+const DEBT_SHEET = "карз";
+const DEBT_SCAN_ROWS = 500;
 
 const REPORT_SHEET = "Якуний хисобот";
 
@@ -15,6 +25,8 @@ export class DateNotPreparedError extends Error {
     this.name = "DateNotPreparedError";
   }
 }
+
+export class SheetCapacityError extends Error {}
 
 let sheetsClient: sheets_v4.Sheets | null = null;
 
@@ -99,6 +111,114 @@ export async function appendOrAccumulateExpense(date: Date, amount: number, cate
   });
 
   return { row, totalForDay, categoriesForDay };
+}
+
+export interface BankReceiptResult {
+  row: number;
+  previousAmount: number | null;
+}
+
+// Overwrites (not accumulates) the bank receipt figure for a day — it represents a single
+// confirmed total, not a running sum of separate entries.
+export async function setBankReceipt(date: Date, amount: number): Promise<BankReceiptResult> {
+  const sheets = await getClient();
+  const id = spreadsheetId();
+  const row = await findRowForDate(date);
+
+  const existing = await sheets.spreadsheets.values.get({
+    spreadsheetId: id,
+    range: `${EXPENSE_SHEET}!${BANK_RECEIPT_COL}${row}`,
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  const existingVal = existing.data.values?.[0]?.[0];
+  const previousAmount = typeof existingVal === "number" ? existingVal : null;
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: id,
+    range: `${EXPENSE_SHEET}!${BANK_RECEIPT_COL}${row}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[amount]] },
+  });
+
+  return { row, previousAmount };
+}
+
+async function findEmptyFactoryRow(): Promise<number> {
+  const sheets = await getClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: spreadsheetId(),
+    range: `${EXPENSE_SHEET}!${FACTORY_SUPPLIER_COL}3:${FACTORY_SUPPLIER_COL}${FACTORY_MAX_ROW}`,
+  });
+  const values = res.data.values ?? [];
+  for (let row = 3; row <= FACTORY_MAX_ROW; row++) {
+    if (!values[row - 3]?.[0]) return row;
+  }
+  throw new SheetCapacityError(
+    `"${EXPENSE_SHEET}" varag'ida zavodga to'lov uchun bo'sh joy qolmadi (${FACTORY_MAX_ROW}-qatorgacha to'lgan). Administratorga murojaat qiling.`
+  );
+}
+
+export async function appendFactoryPayment(fields: FactoryPaymentFields): Promise<{ row: number }> {
+  const sheets = await getClient();
+  const id = spreadsheetId();
+  const row = await findEmptyFactoryRow();
+  const date = fields.date ?? new Date();
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: id,
+    range: `${EXPENSE_SHEET}!${FACTORY_DATE_COL}${row}:${FACTORY_NOTE_COL}${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[date.toISOString().slice(0, 10), fields.supplier, fields.amount, fields.note ?? ""]] },
+  });
+
+  return { row };
+}
+
+async function findEmptyDebtRow(): Promise<number> {
+  const sheets = await getClient();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: spreadsheetId(),
+    range: `${DEBT_SHEET}!A3:C${DEBT_SCAN_ROWS}`,
+  });
+  const values = res.data.values ?? [];
+  for (let i = 0; i < values.length; i++) {
+    const label = String(values[i]?.[0] ?? "").trim().toLowerCase();
+    if (label === "жами") break;
+    if (!values[i]?.[2]) return i + 3; // column C (Фирма) empty = unused row
+  }
+  throw new SheetCapacityError(
+    `"${DEBT_SHEET}" varag'ida yangi qarz yozuvi uchun bo'sh joy qolmadi. Administratorga murojaat qiling.`
+  );
+}
+
+export async function appendDebtEntry(fields: DebtFields): Promise<{ row: number }> {
+  const sheets = await getClient();
+  const id = spreadsheetId();
+  const row = await findEmptyDebtRow();
+  const date = fields.date ?? new Date();
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: id,
+    range: `${DEBT_SHEET}!A${row}:I${row}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [
+        [
+          fields.invoiceNo ?? "",
+          date.toISOString().slice(0, 10),
+          fields.company,
+          fields.phone ?? "",
+          fields.district ?? "",
+          fields.rep ?? "",
+          fields.amount,
+          fields.paid ?? 0,
+          `=G${row}-H${row}`,
+        ],
+      ],
+    },
+  });
+
+  return { row };
 }
 
 const sheetGidCache = new Map<string, number>();

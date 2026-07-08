@@ -1,12 +1,22 @@
 import "dotenv/config";
 import { Context, Markup, session, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
-import { parseExpenseWithAI } from "./ai";
-import { appendOrAccumulateExpense, DateNotPreparedError, getFinalReportSummary, getSheetUrl } from "./sheets";
-import { DraftExpense } from "./types";
+import { parseExpenseWithAI, parseStandaloneDate } from "./ai";
+import {
+  appendDebtEntry,
+  appendFactoryPayment,
+  appendOrAccumulateExpense,
+  DateNotPreparedError,
+  getFinalReportSummary,
+  getSheetUrl,
+  SheetCapacityError,
+  setBankReceipt,
+} from "./sheets";
+import { ActiveForm, DraftExpense, FieldDef, FormFlow } from "./types";
 
 interface SessionData {
   draft?: DraftExpense;
+  form?: ActiveForm;
 }
 
 interface BotContext extends Context {
@@ -22,8 +32,17 @@ const bot = new Telegraf<BotContext>(BOT_TOKEN);
 bot.use(session({ defaultSession: (): SessionData => ({}) }));
 
 const QUICK_CATEGORIES = ["Yoqilg'i", "Ta'mirlash", "Ijara", "Maosh", "Ofis xarajatlari", "Boshqa"];
+const FACTORY_SUPPLIERS = ["MARWIN", "RICOMEL", "IMIR-TRADE"];
+
+const MENU = Markup.keyboard([
+  ["➕ Xarajat"],
+  ["🧾 Qarz (hisob-faktura)", "🏭 Zavodga to'lov"],
+  ["🏦 Bank tushumi"],
+  ["📊 Hisobot", "📊 Fayl"],
+]).resize();
 
 const fmt = (n: number) => Math.round(n).toLocaleString("ru-RU").replace(/,/g, " ");
+const dateLabel = (d: Date) => d.toLocaleDateString("uz-UZ", { day: "numeric", month: "long", timeZone: "UTC" });
 
 async function sheetLinkKeyboard() {
   const url = await getSheetUrl();
@@ -36,15 +55,23 @@ bot.start(async (ctx) => {
     [
       "🤖 *Xarajatlar AI* ga xush kelibsiz!",
       "",
-      "Xarajatingizni oddiy matn bilan yozing, masalan:",
-      '_"50000 yoqilg\'iga"_ yoki _"ofisga 200000 ijaraga to\'ladik"_',
+      "Bu bot orqali balans faylingizga (Google Sheets) to'g'ridan-to'g'ri yozishingiz mumkin — fayldagi formulalar hech qachon buzilmaydi.",
       "",
-      "Men summani va turini o'zim aniqlayman, tasdiqlaganingizdan so'ng balans faylingizga (Google Sheets) yoziladi.",
+      "💸 *Xarajat* — oddiy matn bilan yozing: \"50000 yoqilg'iga\"",
+      "🧾 *Qarz* — yangi mijoz hisob-fakturasi",
+      "🏭 *Zavodga to'lov* — yetkazib beruvchiga to'lov",
+      "🏦 *Bank tushumi* — kunlik terminal tushumini bankka tasdiqlash",
       "",
-      "📊 Joriy hisobotni ko'rish uchun /hisobot, faylning o'zini ochish uchun /fayl yuboring.",
+      "Quyidagi menyudan tanlang 👇",
     ].join("\n"),
-    { parse_mode: "Markdown" }
+    { parse_mode: "Markdown", ...MENU }
   );
+});
+
+bot.command("bekor", async (ctx) => {
+  ctx.session.draft = undefined;
+  ctx.session.form = undefined;
+  await ctx.reply("❌ Bekor qilindi.", MENU);
 });
 
 bot.command("fayl", async (ctx) => {
@@ -56,7 +83,18 @@ bot.command("fayl", async (ctx) => {
   }
 });
 
-bot.command("hisobot", async (ctx) => {
+bot.command("hisobot", (ctx) => sendReport(ctx));
+bot.hears("📊 Hisobot", (ctx) => sendReport(ctx));
+bot.hears("📊 Fayl", async (ctx) => {
+  try {
+    await ctx.reply("📊 Balans faylingiz (Google Sheets):", await sheetLinkKeyboard());
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("⚠️ Fayl havolasini olishda xatolik yuz berdi.");
+  }
+});
+
+async function sendReport(ctx: BotContext) {
   await ctx.reply("⏳ Hisobot o'qilmoqda...");
   try {
     const summary = await getFinalReportSummary();
@@ -77,30 +115,21 @@ bot.command("hisobot", async (ctx) => {
     console.error(err);
     await ctx.reply("⚠️ Hisobotni o'qib bo'lmadi. Fayl ulanishini tekshiring.");
   }
+}
+
+// ---------- Xarajat (free-text AI/rule-based flow) ----------
+
+bot.hears("➕ Xarajat", async (ctx) => {
+  ctx.session.form = undefined;
+  await ctx.reply("Xarajatni yozing, masalan: \"50000 yoqilg'iga\" yoki \"5-iyun 200000 ustaga\"");
 });
 
-bot.on(message("text"), async (ctx) => {
-  if (ctx.message.text.startsWith("/")) return;
-
-  const text = ctx.message.text.trim();
-  const parsed = await parseExpenseWithAI(text);
-
-  if (!parsed) {
-    await ctx.reply("Summani aniqlay olmadim. Iltimos, summani ham yozing, masalan: \"50000 yoqilg'iga\"");
-    return;
-  }
-
-  ctx.session.draft = { amount: parsed.amount, category: parsed.category, date: parsed.date, rawText: text };
-  await showConfirmation(ctx);
-});
-
-async function showConfirmation(ctx: BotContext) {
+async function showExpenseConfirmation(ctx: BotContext) {
   const draft = ctx.session.draft;
   if (!draft) return;
 
-  const dateLabel = draft.date.toLocaleDateString("uz-UZ", { day: "numeric", month: "long" });
   await ctx.reply(
-    `💸 ${fmt(draft.amount)} so'm — ${draft.category} — ${dateLabel}\n\nTasdiqlaysizmi?`,
+    `💸 ${fmt(draft.amount)} so'm — ${draft.category} — ${dateLabel(draft.date)}\n\nTasdiqlaysizmi?`,
     Markup.inlineKeyboard([
       [Markup.button.callback("✅ Saqlash", "confirm_save")],
       [Markup.button.callback("✏️ Turini o'zgartirish", "confirm_edit")],
@@ -155,7 +184,220 @@ bot.action(/^pickcat:(.+)$/, async (ctx) => {
   if (!draft) return;
   draft.category = ctx.match[1];
   await ctx.deleteMessage().catch(() => undefined);
-  await showConfirmation(ctx);
+  await showExpenseConfirmation(ctx);
+});
+
+// ---------- Generic guided form engine (qarz / zavodga to'lov / bank tushumi) ----------
+
+const DEBT_FIELDS: FieldDef[] = [
+  { key: "company", prompt: "🏢 Firma/mijoz nomi?", type: "text" },
+  { key: "amount", prompt: "💰 Hisob-faktura summasi (so'm)?", type: "number" },
+  { key: "paid", prompt: "💵 Hozir to'langan summa? (yo'q bo'lsa \"-\" yozing)", type: "number", optional: true },
+  { key: "phone", prompt: "📞 Telefon raqami? (ixtiyoriy, \"-\")", type: "text", optional: true },
+  { key: "district", prompt: "📍 Tuman/hudud? (ixtiyoriy, \"-\")", type: "text", optional: true },
+  { key: "rep", prompt: "🧑‍💼 Sotuvchi/vakil ismi? (ixtiyoriy, \"-\")", type: "text", optional: true },
+  { key: "invoiceNo", prompt: "🧾 Nakladnaya raqami? (ixtiyoriy, \"-\")", type: "text", optional: true },
+  { key: "date", prompt: "📅 Sana? (masalan 5-iyun, yoki \"-\" = bugun)", type: "date", optional: true },
+];
+
+const FACTORY_FIELDS: FieldDef[] = [
+  { key: "supplier", prompt: "🏭 Qaysi yetkazib beruvchi?", type: "choice", choices: FACTORY_SUPPLIERS },
+  { key: "amount", prompt: "💰 To'lov summasi (so'm)?", type: "number" },
+  { key: "note", prompt: "📝 Izoh? (ixtiyoriy, \"-\")", type: "text", optional: true },
+  { key: "date", prompt: "📅 Sana? (\"-\" = bugun)", type: "date", optional: true },
+];
+
+const BANK_FIELDS: FieldDef[] = [
+  { key: "amount", prompt: "🏦 Bankka tushgan summa (so'm)?", type: "number" },
+  { key: "date", prompt: "📅 Qaysi kun uchun? (\"-\" = bugun)", type: "date", optional: true },
+];
+
+bot.hears("🧾 Qarz (hisob-faktura)", (ctx) => startForm(ctx, "debt", DEBT_FIELDS));
+bot.hears("🏭 Zavodga to'lov", (ctx) => startForm(ctx, "factory", FACTORY_FIELDS));
+bot.hears("🏦 Bank tushumi", (ctx) => startForm(ctx, "bank", BANK_FIELDS));
+
+async function startForm(ctx: BotContext, flow: FormFlow, fields: FieldDef[]) {
+  ctx.session.draft = undefined;
+  ctx.session.form = { flow, fields, index: 0, values: {} };
+  await ctx.reply("Istalgan payt bekor qilish uchun /bekor yozing.", Markup.removeKeyboard());
+  await askCurrentField(ctx);
+}
+
+async function askCurrentField(ctx: BotContext) {
+  const form = ctx.session.form;
+  if (!form) return;
+  const field = form.fields[form.index];
+
+  if (field.type === "choice") {
+    await ctx.reply(field.prompt, Markup.inlineKeyboard(field.choices!.map((c) => Markup.button.callback(c, `formchoice:${c}`)), { columns: 2 }));
+  } else {
+    await ctx.reply(field.prompt);
+  }
+}
+
+function parseFieldValue(field: FieldDef, text: string): string | number | Date | null {
+  if (field.type === "number") {
+    const n = Number(text.replace(/\s/g, "").replace(/[^\d.]/g, ""));
+    return n > 0 ? n : null;
+  }
+  if (field.type === "date") {
+    return parseStandaloneDate(text);
+  }
+  return text.trim() || null;
+}
+
+async function handleFormTextInput(ctx: BotContext, text: string) {
+  const form = ctx.session.form;
+  if (!form) return;
+  const field = form.fields[form.index];
+  if (field.type === "choice") return; // handled only via inline buttons
+
+  if (text.trim() === "-" && field.optional) {
+    // skip, leave unset
+  } else {
+    const value = parseFieldValue(field, text);
+    if (value === null) {
+      await ctx.reply("Tushunmadim, qaytadan urinib ko'ring (yoki /bekor).");
+      return;
+    }
+    form.values[field.key] = value;
+  }
+
+  await advanceForm(ctx);
+}
+
+async function advanceForm(ctx: BotContext) {
+  const form = ctx.session.form;
+  if (!form) return;
+  form.index++;
+  if (form.index >= form.fields.length) {
+    await showFormConfirmation(ctx);
+  } else {
+    await askCurrentField(ctx);
+  }
+}
+
+function formSummary(form: ActiveForm): string {
+  const v = form.values;
+  const dateStr = v.date instanceof Date ? dateLabel(v.date) : "bugun";
+
+  if (form.flow === "debt") {
+    const lines = [`🧾 Yangi qarz:`, `🏢 ${v.company}`, `💰 ${fmt(Number(v.amount))} so'm`];
+    if (v.paid) lines.push(`💵 To'langan: ${fmt(Number(v.paid))} so'm`);
+    if (v.phone) lines.push(`📞 ${v.phone}`);
+    if (v.district) lines.push(`📍 ${v.district}`);
+    if (v.rep) lines.push(`🧑‍💼 ${v.rep}`);
+    if (v.invoiceNo) lines.push(`🧾 № ${v.invoiceNo}`);
+    lines.push(`📅 ${dateStr}`);
+    return lines.join("\n");
+  }
+
+  if (form.flow === "factory") {
+    const lines = [`🏭 Zavodga to'lov:`, `${v.supplier} — ${fmt(Number(v.amount))} so'm`, `📅 ${dateStr}`];
+    if (v.note) lines.push(`📝 ${v.note}`);
+    return lines.join("\n");
+  }
+
+  return `🏦 Bank tushumi:\n📅 ${dateStr} — ${fmt(Number(v.amount))} so'm`;
+}
+
+async function showFormConfirmation(ctx: BotContext) {
+  const form = ctx.session.form;
+  if (!form) return;
+
+  await ctx.reply(
+    `${formSummary(form)}\n\nTasdiqlaysizmi?`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback("✅ Saqlash", "form_save")],
+      [Markup.button.callback("❌ Bekor qilish", "form_cancel")],
+    ])
+  );
+}
+
+bot.action(/^formchoice:(.+)$/, async (ctx) => {
+  const form = ctx.session.form;
+  await ctx.answerCbQuery();
+  if (!form) return;
+  const field = form.fields[form.index];
+  form.values[field.key] = ctx.match[1];
+  await ctx.editMessageReplyMarkup(undefined).catch(() => undefined);
+  await advanceForm(ctx);
+});
+
+bot.action("form_cancel", async (ctx) => {
+  ctx.session.form = undefined;
+  await ctx.answerCbQuery();
+  await ctx.editMessageText("❌ Bekor qilindi.");
+  await ctx.reply("Menyu:", MENU);
+});
+
+bot.action("form_save", async (ctx) => {
+  const form = ctx.session.form;
+  await ctx.answerCbQuery();
+  if (!form) return;
+
+  try {
+    const v = form.values;
+    if (form.flow === "debt") {
+      await appendDebtEntry({
+        company: String(v.company),
+        amount: Number(v.amount),
+        paid: v.paid ? Number(v.paid) : undefined,
+        phone: v.phone ? String(v.phone) : undefined,
+        district: v.district ? String(v.district) : undefined,
+        rep: v.rep ? String(v.rep) : undefined,
+        invoiceNo: v.invoiceNo ? String(v.invoiceNo) : undefined,
+        date: v.date instanceof Date ? v.date : undefined,
+      });
+      await ctx.editMessageText("✅ Qarz/hisob-faktura saqlandi!", await sheetLinkKeyboard());
+    } else if (form.flow === "factory") {
+      await appendFactoryPayment({
+        supplier: String(v.supplier),
+        amount: Number(v.amount),
+        note: v.note ? String(v.note) : undefined,
+        date: v.date instanceof Date ? v.date : undefined,
+      });
+      await ctx.editMessageText("✅ Zavodga to'lov saqlandi!", await sheetLinkKeyboard());
+    } else {
+      const result = await setBankReceipt(v.date instanceof Date ? v.date : new Date(), Number(v.amount));
+      const prevNote = result.previousAmount ? ` (avvalgi qiymat ${fmt(result.previousAmount)} so'm almashtirildi)` : "";
+      await ctx.editMessageText(`✅ Bank tushumi saqlandi!${prevNote}`, await sheetLinkKeyboard());
+    }
+    ctx.session.form = undefined;
+    await ctx.reply("Menyu:", MENU);
+  } catch (err) {
+    if (err instanceof DateNotPreparedError) {
+      await ctx.editMessageText(`⚠️ ${err.message}\nAvval faylda ushbu sana uchun qator tayyorlang.`);
+    } else if (err instanceof SheetCapacityError) {
+      await ctx.editMessageText(`⚠️ ${err.message}`);
+    } else {
+      console.error(err);
+      await ctx.editMessageText("⚠️ Faylga yozishda xatolik yuz berdi. Keyinroq qayta urinib ko'ring.");
+    }
+    ctx.session.form = undefined;
+    await ctx.reply("Menyu:", MENU);
+  }
+});
+
+// ---------- Catch-all text handler ----------
+
+bot.on(message("text"), async (ctx) => {
+  if (ctx.message.text.startsWith("/")) return;
+  const text = ctx.message.text.trim();
+
+  if (ctx.session.form) {
+    await handleFormTextInput(ctx, text);
+    return;
+  }
+
+  const parsed = await parseExpenseWithAI(text);
+  if (!parsed) {
+    await ctx.reply("Summani aniqlay olmadim. Iltimos, summani ham yozing, masalan: \"50000 yoqilg'iga\"");
+    return;
+  }
+
+  ctx.session.draft = { amount: parsed.amount, category: parsed.category, date: parsed.date, rawText: text };
+  await showExpenseConfirmation(ctx);
 });
 
 bot.launch().then(() => console.log("Xarajatlar AI boti ishga tushdi."));

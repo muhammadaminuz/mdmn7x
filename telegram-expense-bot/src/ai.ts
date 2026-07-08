@@ -127,6 +127,14 @@ function mergeThousandGroups(text: string): string {
   return text.replace(/\b\d{1,3}(?:[ ]\d{3})+\b/g, (m) => m.replace(/\s/g, ""));
 }
 
+// Used by the guided form flows (debt/factory/bank entries) where a single message
+// is expected to be just a date, e.g. "5-iyun", "02.06.2026", or "bugun".
+export function parseStandaloneDate(text: string): Date | null {
+  const trimmed = text.trim().toLowerCase();
+  if (trimmed === "bugun" || trimmed === "-") return new Date();
+  return extractDate(text).date;
+}
+
 function parseExpenseWithRules(text: string): ParsedExpense | null {
   const { date, rest } = extractDate(text);
   const merged = mergeThousandGroups(rest);
