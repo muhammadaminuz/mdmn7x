@@ -80,12 +80,63 @@ function extractJson(text: string): string {
   return match ? match[0] : text;
 }
 
+const UZ_MONTHS: Record<string, number> = {
+  yanvar: 0, fevral: 1, mart: 2, aprel: 3, may: 4, iyun: 5,
+  iyul: 6, avgust: 7, sentyabr: 8, oktyabr: 9, noyabr: 10, dekabr: 11,
+};
+
+function normalizeYear(y: string): number {
+  const n = Number(y);
+  return n < 100 ? 2000 + n : n;
+}
+
+// Pulls an explicit date out of the message (numeric "02.06.2026" or Uzbek "5-iyun"),
+// returning the remaining text so the amount search below isn't confused by date digits.
+function extractDate(text: string): { date: Date | null; rest: string } {
+  const numeric = text.match(/\b(\d{1,2})[.\-\/](\d{1,2})(?:[.\-\/](\d{2,4}))?\b/);
+  if (numeric) {
+    const day = Number(numeric[1]);
+    const month = Number(numeric[2]) - 1;
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11) {
+      const year = numeric[3] ? normalizeYear(numeric[3]) : new Date().getFullYear();
+      return { date: new Date(Date.UTC(year, month, day)), rest: text.replace(numeric[0], " ") };
+    }
+  }
+
+  const monthNames = Object.keys(UZ_MONTHS).join("|");
+  const dayThenMonth = text.match(new RegExp(`\\b(\\d{1,2})[-\\s]+(${monthNames})\\b`, "i"));
+  if (dayThenMonth) {
+    const day = Number(dayThenMonth[1]);
+    const month = UZ_MONTHS[dayThenMonth[2].toLowerCase()];
+    return { date: new Date(Date.UTC(new Date().getFullYear(), month, day)), rest: text.replace(dayThenMonth[0], " ") };
+  }
+
+  const monthThenDay = text.match(new RegExp(`\\b(${monthNames})[-\\s]+(\\d{1,2})\\b`, "i"));
+  if (monthThenDay) {
+    const day = Number(monthThenDay[2]);
+    const month = UZ_MONTHS[monthThenDay[1].toLowerCase()];
+    return { date: new Date(Date.UTC(new Date().getFullYear(), month, day)), rest: text.replace(monthThenDay[0], " ") };
+  }
+
+  return { date: null, rest: text };
+}
+
+// Collapses space-grouped thousands ("50 000" -> "50000") without touching unrelated
+// digit runs elsewhere in the message.
+function mergeThousandGroups(text: string): string {
+  return text.replace(/\b\d{1,3}(?:[ ]\d{3})+\b/g, (m) => m.replace(/\s/g, ""));
+}
+
 function parseExpenseWithRules(text: string): ParsedExpense | null {
-  const amountMatch = text.replace(/\s/g, "").match(/\d{3,}/);
+  const { date, rest } = extractDate(text);
+  const merged = mergeThousandGroups(rest);
+
+  const amountMatch = merged.match(/\b\d{3,}\b/);
   if (!amountMatch) return null;
 
   const amount = Number(amountMatch[0]);
-  const category = text.replace(amountMatch[0], "").trim().replace(/^[-,:.\s]+/, "") || "Boshqa";
+  const category =
+    merged.replace(amountMatch[0], "").trim().replace(/^[-,:.\s]+|[-,:.\s]+$/g, "") || "Boshqa";
 
-  return { amount, category, date: new Date() };
+  return { amount, category, date: date ?? new Date() };
 }
