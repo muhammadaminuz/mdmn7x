@@ -1,15 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ParsedExpense } from "./types";
 
-const MODEL = "claude-haiku-4-5";
-
-let client: Anthropic | null = null;
-
-function getClient(): Anthropic | null {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  if (!client) client = new Anthropic();
-  return client;
-}
+const ANTHROPIC_MODEL = "claude-haiku-4-5";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const SYSTEM_PROMPT = `Sen distribyutsiya (ulgurji savdo) kompaniyasi uchun xarajatlarni yozib boruvchi yordamchisan.
 Foydalanuvchi o'zbek yoki rus tilida erkin matn shaklida xarajat haqida yozadi.
@@ -23,33 +17,62 @@ Faqat quyidagi JSON formatida javob ber, boshqa hech narsa yozma:
 
 Agar matnda summa umuman topilmasa, {"amount": null} qaytar.`;
 
+// Provider priority: Gemini (free tier) first, then Anthropic, then a rule-based fallback.
+// Switching later just means setting ANTHROPIC_API_KEY (and optionally clearing GEMINI_API_KEY).
 export async function parseExpenseWithAI(text: string): Promise<ParsedExpense | null> {
-  const anthropic = getClient();
-  if (!anthropic) return parseExpenseWithRules(text);
-
-  try {
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 200,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: text }],
-    });
-
-    const block = response.content.find((b) => b.type === "text");
-    if (!block || block.type !== "text") return parseExpenseWithRules(text);
-
-    const parsed = JSON.parse(extractJson(block.text));
-    if (!parsed.amount || Number(parsed.amount) <= 0) return null;
-
-    return {
-      amount: Number(parsed.amount),
-      category: String(parsed.category ?? "Boshqa").trim() || "Boshqa",
-      date: parsed.date ? new Date(parsed.date) : new Date(),
-    };
-  } catch (err) {
-    console.error("AI parsing xatosi, oddiy usulga o'tildi:", err);
-    return parseExpenseWithRules(text);
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      return await parseWithGemini(text);
+    } catch (err) {
+      console.error("Gemini xatosi, oddiy usulga o'tildi:", err);
+    }
+  } else if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      return await parseWithAnthropic(text);
+    } catch (err) {
+      console.error("Anthropic xatosi, oddiy usulga o'tildi:", err);
+    }
   }
+  return parseExpenseWithRules(text);
+}
+
+let geminiClient: GoogleGenerativeAI | null = null;
+
+async function parseWithGemini(text: string): Promise<ParsedExpense | null> {
+  if (!geminiClient) geminiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+  const model = geminiClient.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: SYSTEM_PROMPT });
+
+  const result = await model.generateContent(text);
+  const responseText = result.response.text();
+  return toParsedExpense(extractJson(responseText));
+}
+
+let anthropicClient: Anthropic | null = null;
+
+async function parseWithAnthropic(text: string): Promise<ParsedExpense | null> {
+  if (!anthropicClient) anthropicClient = new Anthropic();
+
+  const response = await anthropicClient.messages.create({
+    model: ANTHROPIC_MODEL,
+    max_tokens: 200,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: text }],
+  });
+
+  const block = response.content.find((b) => b.type === "text");
+  if (!block || block.type !== "text") return null;
+  return toParsedExpense(extractJson(block.text));
+}
+
+function toParsedExpense(jsonText: string): ParsedExpense | null {
+  const parsed = JSON.parse(jsonText);
+  if (!parsed.amount || Number(parsed.amount) <= 0) return null;
+
+  return {
+    amount: Number(parsed.amount),
+    category: String(parsed.category ?? "Boshqa").trim() || "Boshqa",
+    date: parsed.date ? new Date(parsed.date) : new Date(),
+  };
 }
 
 function extractJson(text: string): string {

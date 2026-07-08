@@ -41,7 +41,10 @@ Skript oxirida chiqadigan `SPREADSHEET_ID` ni `.env` fayliga yozing.
 
 ### 4. AI (ixtiyoriy, lekin tavsiya etiladi)
 
-`ANTHROPIC_API_KEY` ni `.env` ga qo'ysangiz, bot xabarni to'liq erkin matn sifatida tushunadi (masalan "bugun mashinaga ta'mirlash uchun 350 ming to'ladik"). Kalit bo'lmasa, bot oddiy qoidaviy usulga o'tadi: xabardagi birinchi sonni summa, qolganini tur sifatida oladi.
+`.env` faylida `GEMINI_API_KEY` yoki `ANTHROPIC_API_KEY` dan birini qo'ysangiz, bot xabarni to'liq erkin matn sifatida tushunadi (masalan "bugun mashinaga ta'mirlash uchun 350 ming to'ladik"). Ikkalasi ham bo'lsa — Gemini ustunlik qiladi. Hech qaysi kalit bo'lmasa, bot oddiy qoidaviy usulga o'tadi: xabardagi birinchi sonni summa, qolganini tur sifatida oladi.
+
+- **Gemini** (bepul tarif): [aistudio.google.com/apikey](https://aistudio.google.com/apikey) dan kalit oling.
+- **Anthropic** (keyinchalik o'tish uchun): [console.anthropic.com](https://console.anthropic.com) dan kalit oling — `ANTHROPIC_API_KEY` ni qo'ysangiz va `GEMINI_API_KEY` ni bo'shatsangiz, bot avtomatik Anthropic'ga o'tadi.
 
 ### 5. Ishga tushirish
 
