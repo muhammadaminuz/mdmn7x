@@ -25,6 +25,7 @@ import returnsRouter from "./routes/returns";
 import expensesRouter from "./routes/expenses";
 import bonusesRouter from "./routes/bonuses";
 import gpsRouter from "./routes/gps";
+import botRouter from "./routes/bot";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -57,6 +58,7 @@ app.use("/api/returns", returnsRouter);
 app.use("/api/expenses", expensesRouter);
 app.use("/api/bonuses", bonusesRouter);
 app.use("/api/gps", gpsRouter);
+app.use("/api/bot", botRouter);
 
 app.use(errorHandler);
 

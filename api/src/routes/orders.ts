@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth";
 import prisma from "../lib/prisma";
+import { generateOrderNo } from "../lib/orderNo";
 
 const router = Router();
 
@@ -107,18 +108,7 @@ router.post("/", authenticate, async (req: AuthRequest, res: Response) => {
       0
     );
     const total = subtotal - Number(discount || 0);
-    const year = new Date().getFullYear();
-
-    // Find true max sequence for this year (findFirst with desc is lexicographic, not numeric).
-    const yearOrders = await prisma.order.findMany({
-      where: { orderNo: { startsWith: `ORD-${year}-` } },
-      select: { orderNo: true },
-    });
-    const maxSeq = yearOrders.reduce((max, o) => {
-      const n = parseInt(o.orderNo.slice(-4), 10);
-      return isNaN(n) ? max : Math.max(max, n);
-    }, 0);
-    const orderNo = `ORD-${year}-${String(maxSeq + 1).padStart(4, "0")}`;
+    const orderNo = await generateOrderNo();
 
     const order = await prisma.order.create({
       data: {
