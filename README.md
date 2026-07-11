@@ -11,7 +11,6 @@ Enterprise-grade Distribution ERP platform for FMCG companies — built with Nex
 | `admin-panel` | **3000** | Enterprise Admin Web Panel |
 | `agent-app` | **3001** | Sales Agent Mobile App |
 | `api` | **4000** | Express.js REST API |
-| `telegram-bot` | — | Telegram bot for B2B customers to order directly |
 | `redis` | **6379** | Redis Cache |
 
 ---
@@ -26,7 +25,6 @@ docker-compose up --build
 cd api && npm install && npm run dev
 cd admin-panel && npm install && npm run dev
 cd agent-app && npm install && npm run dev
-cd telegram-bot && npm install && npm run dev
 ```
 
 Open:
@@ -81,14 +79,6 @@ Open:
 - 📊 **Reports** — personal performance stats
 - 👤 **Profile** — agent info and settings
 
-### Telegram B2B Order Bot
-- 📱 **Self-service linking** — customer shares their phone contact once; the bot matches it to their existing B2B customer record
-- 📦 **Katalog** — browse products by category with wholesale pricing and live stock
-- 🛒 **Buyurtma berish** — build a cart, adjust quantities, then submit the order (created as `PENDING`, ready for manager approval)
-- 📋 **Buyurtmalarim** — last 10 orders with status and line items
-- 💰 **Balansim** — current balance, debt, and assigned agent contact
-- Talks to the ERP API through dedicated `/api/bot/*` endpoints (shared-secret auth) so pricing/stock/order numbering stay authoritative on the server
-
 ---
 
 ## 🏗️ Architecture
@@ -105,24 +95,9 @@ mdmn7x/
 │   └── prisma/schema.prisma # Full DB schema (production reference)
 ├── admin-panel/             # Next.js 14 Admin Web App
 │   └── src/app/             # App Router pages
-├── agent-app/               # Next.js 14 Mobile Agent App
-│   └── src/app/             # Mobile-first pages
-└── telegram-bot/            # Telegraf B2B order bot
-    └── src/
-        ├── handlers/        # /start, contact linking, main menu
-        ├── scenes/          # Cart/checkout wizard scene
-        └── lib/api.ts        # Client for the api's /api/bot/* endpoints
+└── agent-app/               # Next.js 14 Mobile Agent App
+    └── src/app/             # Mobile-first pages
 ```
-
----
-
-## 🤖 Telegram Bot Setup
-
-1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
-2. Copy `telegram-bot/.env.example` to `telegram-bot/.env` and set `BOT_TOKEN`.
-3. Set the same `BOT_API_KEY` in both `api/.env` and `telegram-bot/.env` (or `docker-compose.yml`) — it's the shared secret between the two services.
-4. Existing customers are matched by phone number, so a customer must already exist in the `Customer` table (with a matching `phone`) before they can link their Telegram account.
-5. Start it: `cd telegram-bot && npm install && npm run dev` (or via `docker-compose up telegram-bot`).
 
 ---
 
@@ -151,14 +126,6 @@ GET  /api/notifications        # Notifications
 GET  /api/route-stops/today    # Today's route stops
 GET  /api/crm/top-customers    # Top customers
 GET  /api/crm/debt-aging       # Debt aging analysis
-
-# Telegram bot (requires x-bot-api-key header instead of JWT)
-POST /api/bot/link                       # Link a Telegram chat to a customer by phone
-GET  /api/bot/customers/:chatId          # Linked customer profile (debt/balance/agent)
-GET  /api/bot/customers/:chatId/orders   # Linked customer's order history
-GET  /api/bot/products                   # Product catalog (wholesale price)
-GET  /api/bot/products/categories        # Distinct product categories
-POST /api/bot/orders                     # Create an order for the linked customer
 ```
 
 ---
@@ -167,7 +134,6 @@ POST /api/bot/orders                     # Create an order for the linked custom
 
 - **Frontend**: Next.js 14, TypeScript, TailwindCSS, Recharts, SWR, Axios
 - **Backend**: Express.js, TypeScript, JWT authentication
-- **Bot**: Telegraf (Telegram), TypeScript
 - **Database Schema**: PostgreSQL + Prisma ORM (schema included)
 - **Cache**: Redis
 - **Deployment**: Docker + Docker Compose

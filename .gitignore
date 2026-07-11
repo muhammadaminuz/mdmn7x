@@ -5,6 +5,10 @@
 **/.env
 **/.env.local
 
+# Local SQLite databases (telegram-bot)
+**/*.db
+**/*.db-journal
+
 # OS
 .DS_Store
 Thumbs.db

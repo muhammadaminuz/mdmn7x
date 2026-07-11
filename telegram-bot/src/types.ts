@@ -9,34 +9,37 @@ export interface CartItem {
 
 export interface CustomerProfile {
   id: number;
+  telegramChatId: string;
   companyName: string;
   ownerName: string;
   phone: string;
-  region: string;
-  district: string;
-  address: string;
-  debt: number;
-  balance: number;
-  status: string;
-  agentId: number;
-  agentName: string;
-  agentPhone: string;
+  address: string | null;
+}
+
+// New-product wizard state (admin flow).
+export interface NewProductDraft {
+  name?: string;
+  category?: string;
+  price?: number;
 }
 
 // Scene-scoped data: lives under ctx.session.__scenes and is wiped whenever
-// ctx.scene.leave() runs, which is exactly what we want for an in-progress cart.
-export interface OrderSceneData extends Scenes.SceneSessionData {
+// ctx.scene.leave() runs, which is exactly what we want for in-progress forms.
+export interface BotSceneData extends Scenes.SceneSessionData {
   cart?: CartItem[];
   category?: string;
   pendingProductId?: number;
+  registerPhone?: string;
+  registerCompanyName?: string;
+  newProduct?: NewProductDraft;
 }
 
 // Top-level session: the linked customer must survive scene leaves/resets, so it
 // lives alongside __scenes rather than inside the scene-scoped data above.
-export interface BotSession extends Scenes.SceneSession<OrderSceneData> {
+export interface BotSession extends Scenes.SceneSession<BotSceneData> {
   customer?: CustomerProfile;
 }
 
-export interface BotContext extends Scenes.SceneContext<OrderSceneData> {
+export interface BotContext extends Scenes.SceneContext<BotSceneData> {
   session: BotSession;
 }

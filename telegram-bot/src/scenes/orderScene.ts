@@ -1,8 +1,10 @@
 import { Scenes, Markup } from "telegraf";
 import { message } from "telegraf/filters";
 import { BotContext } from "../types";
-import { getCategories, getProducts, createOrder } from "../lib/api";
-import { formatSum, statusLabel } from "../utils/format";
+import prisma from "../lib/prisma";
+import { generateOrderNo } from "../lib/orderNo";
+import { ADMIN_IDS } from "../lib/admin";
+import { formatSum } from "../utils/format";
 import {
   mainMenuKeyboard,
   MENU_ORDER,
@@ -15,6 +17,23 @@ import {
 export const orderScene = new Scenes.BaseScene<BotContext>("order");
 
 const MENU_LABELS = [MENU_ORDER, MENU_CATALOG, MENU_ORDERS, MENU_PROFILE, MENU_HELP];
+
+async function getCategories(): Promise<string[]> {
+  const products = await prisma.product.findMany({
+    where: { isActive: true, stock: { gt: 0 } },
+    select: { category: true },
+    distinct: ["category"],
+    orderBy: { category: "asc" },
+  });
+  return products.map((p) => p.category);
+}
+
+async function getProducts(category?: string) {
+  return prisma.product.findMany({
+    where: { isActive: true, stock: { gt: 0 }, ...(category ? { category } : {}) },
+    orderBy: { name: "asc" },
+  });
+}
 
 async function showCategories(ctx: BotContext) {
   const categories = await getCategories();
@@ -112,16 +131,68 @@ orderScene.action("checkout", async (ctx) => {
     return;
   }
   await ctx.answerCbQuery();
+  const customer = ctx.session.customer!;
+
   try {
-    const order = await createOrder(ctx.chat!.id, cart);
+    const orderNo = await generateOrderNo();
+    const total = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+
+    const order = await prisma.$transaction(async (tx) => {
+      for (const item of cart) {
+        const product = await tx.product.findUnique({ where: { id: item.productId } });
+        if (!product || product.stock < item.quantity) {
+          throw new Error(`Omborda "${item.name}" uchun yetarli miqdor yo'q`);
+        }
+        await tx.product.update({ where: { id: item.productId }, data: { stock: { decrement: item.quantity } } });
+      }
+      return tx.order.create({
+        data: {
+          orderNo,
+          customerId: customer.id,
+          status: "PENDING",
+          total,
+          note: "Telegram bot orqali",
+          items: {
+            create: cart.map((i) => ({
+              productId: i.productId,
+              productName: i.name,
+              price: i.price,
+              quantity: i.quantity,
+              total: i.price * i.quantity,
+            })),
+          },
+        },
+      });
+    });
+
     ctx.scene.session.cart = [];
     await ctx.reply(
-      `🎉 Buyurtmangiz qabul qilindi!\n\n📄 Raqami: ${order.orderNo}\nHolati: ${statusLabel(order.status)}\nJami summa: ${formatSum(order.total)}\n\nAgentingiz tez orada siz bilan bog'lanadi.`,
+      `🎉 Buyurtmangiz qabul qilindi!\n\n📄 Raqami: ${order.orderNo}\n⏳ Holati: Kutilmoqda\nJami summa: ${formatSum(total)}\n\nBuyurtmangiz admin tomonidan tasdiqlanishi kutilmoqda.`,
       mainMenuKeyboard
     );
+
+    const adminText =
+      `🆕 Yangi buyurtma!\n\n📄 ${order.orderNo}\n🏢 ${customer.companyName}\n📞 ${customer.phone}\n\n` +
+      cart.map((i) => `• ${i.name} x${i.quantity} = ${formatSum(i.price * i.quantity)}`).join("\n") +
+      `\n\nJami: ${formatSum(total)}`;
+    for (const adminId of ADMIN_IDS) {
+      await ctx.telegram
+        .sendMessage(
+          adminId,
+          adminText,
+          Markup.inlineKeyboard([
+            [
+              Markup.button.callback("✅ Tasdiqlash", `approve_${order.id}`),
+              Markup.button.callback("❌ Bekor qilish", `reject_${order.id}`),
+            ],
+          ])
+        )
+        .catch(() => undefined);
+    }
+
     await ctx.scene.leave();
   } catch (err: any) {
-    await ctx.reply(`❌ Xatolik: ${err?.response?.data?.error || err.message}`);
+    await ctx.reply(`❌ Xatolik: ${err?.message || "Buyurtmani saqlashda xatolik yuz berdi"}`);
   }
 });
 
@@ -147,8 +218,7 @@ orderScene.on(message("text"), async (ctx) => {
     return;
   }
 
-  const products = await getProducts(ctx.scene.session.category);
-  const product = products.find((p) => p.id === pendingId);
+  const product = await prisma.product.findUnique({ where: { id: pendingId } });
   if (!product) {
     await ctx.reply("Mahsulot topilmadi, qaytadan urinib ko'ring.");
     ctx.scene.session.pendingProductId = undefined;

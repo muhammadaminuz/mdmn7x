@@ -1,9 +1,12 @@
 import "dotenv/config";
 import { Telegraf, Scenes, session } from "telegraf";
 import { BotContext } from "./types";
+import { registerScene } from "./scenes/registerScene";
 import { orderScene } from "./scenes/orderScene";
+import { addProductScene } from "./scenes/addProductScene";
 import { registerStartHandlers } from "./handlers/start";
 import { registerMenuHandlers } from "./handlers/menu";
+import { registerAdminHandlers } from "./handlers/admin";
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) {
@@ -12,16 +15,17 @@ if (!BOT_TOKEN) {
 }
 
 const bot = new Telegraf<BotContext>(BOT_TOKEN);
-const stage = new Scenes.Stage<BotContext>([orderScene]);
+const stage = new Scenes.Stage<BotContext>([registerScene, orderScene, addProductScene]);
 
 bot.use(session());
 bot.use(stage.middleware());
 
+registerAdminHandlers(bot);
 registerStartHandlers(bot);
 registerMenuHandlers(bot);
 
 bot.command("bekor", async (ctx) => {
-  await ctx.reply("Hozir faol buyurtma jarayoni yo'q.");
+  await ctx.reply("Hozir faol jarayon yo'q.");
 });
 
 bot.on("text", async (ctx) => {
