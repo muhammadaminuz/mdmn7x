@@ -75,3 +75,19 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  hr-bot:
+    build:
+      context: ./hr-bot
+      dockerfile: Dockerfile
+    container_name: fmcg-hr-bot
+    restart: unless-stopped
+    env_file:
+      - ./hr-bot/.env
+    volumes:
+      - ./hr-bot/data:/app/data
+      - ./hr-bot/vacancies.json:/app/vacancies.json:ro
+    networks:
+      - fmcg-net
+    profiles:
+      - hr-bot

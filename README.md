@@ -12,6 +12,7 @@ Enterprise-grade Distribution ERP platform for FMCG companies — built with Nex
 | `agent-app` | **3001** | Sales Agent Mobile App |
 | `api` | **4000** | Express.js REST API |
 | `redis` | **6379** | Redis Cache |
+| `hr-bot` | — | Telegram HR bot: rezyumelarni Claude bilan saralaydi ([hr-bot/README.md](hr-bot/README.md)) |
 
 ---
 

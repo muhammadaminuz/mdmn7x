@@ -1,0 +1,26 @@
+{
+  "company": "Kompaniya nomi",
+  "about": "FMCG mahsulotlari distribyutsiyasi bilan shug'ullanuvchi kompaniya.",
+  "vacancies": [
+    {
+      "id": "sales_agent",
+      "title": "Savdo agenti",
+      "requirements": "Savdo sohasida kamida 1 yil tajriba, muloqotchanlik, haydovchilik guvohnomasi afzallik, o'zbek va rus tillari, Toshkent bo'yicha hududlarni bilish."
+    },
+    {
+      "id": "accountant",
+      "title": "Buxgalter",
+      "requirements": "Buxgalteriya bo'yicha oliy ma'lumot, 1C dasturida kamida 2 yil ishlash tajribasi, soliq hisobotlarini bilish, Excel."
+    },
+    {
+      "id": "warehouse",
+      "title": "Omborchi",
+      "requirements": "Omborda ishlash tajribasi, mas'uliyatlilik, inventarizatsiya va hisob yuritishni bilish, jismoniy chidamlilik."
+    },
+    {
+      "id": "other",
+      "title": "Boshqa lavozim",
+      "requirements": "Umumiy baho: tajriba, ko'nikmalar, ma'lumot va rezyume sifati bo'yicha."
+    }
+  ]
+}
