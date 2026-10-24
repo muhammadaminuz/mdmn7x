@@ -9,12 +9,45 @@ bot Claude Code CLI'ni (`claude -p`) `CLAUDE_CODE_OAUTH_TOKEN` bilan chaqiradi.
 ## Qanday ishlaydi
 
 ```
-Nomzod: /start → ism → telefon → lavozim tanlash → rezyume (PDF / DOCX / TXT / rasm / matn)
+Nomzod: /start → lavozim tanlash (Savdo agenti, Haydovchi, Omborchi, Buxgalter, Boshqa)
+   → usulni tanlash:
+       📝 Savollarga javob berish   — bot birma-bir so'raydi (tugmalar bilan), oxirida nomzod tekshirib TASDIQLAYDI
+       📎 Tayyor rezyume/anketa      — istalgan format: PDF, DOC/DOCX, TXT, rasm (bir nechta), yoki matn
+       📄 Bo'sh anketa blankasi      — bot DOCX anketa beradi, nomzod to'ldirib rasm/fayl qilib qaytaradi
    ↓
-Bot: "Arizangiz qabul qilindi" → fonda Claude tahlili (ball 0-100, xulosa, kuchli/zaif tomonlar, suhbat savollari)
+Claude tahlili: ball 0-100, xulosa, kuchli/zaif tomonlar, suhbat savollari.
+Rezyume fayl bo'lsa — Claude undan anketa maydonlarini AVTOMATIK to'ldiradi.
    ↓
-Ball ≥ MIN_SCORE → sizga karta + rezyume fayli yuboriladi
+Sizga: karta + to'ldirilgan anketa (DOCX) + nomzodning asl fayllari
+  • ball ≥ MIN_SCORE — to'liq
+  • past ball — qisqa xabar (/view_ID bilan ochiladi)
 ```
+
+### Claude limiti / tokeni tugasa
+Bot to'xtamaydi: ariza baribir **AI tahlilisiz** sizga keladi (barcha javoblar, anketa va fayllar bilan).
+Bot har `RETRY_MINUTES` (default 60) daqiqada qayta urinadi; AI ishlay boshlagach, baho alohida keladi.
+Qo'lda: `/retry_ID`.
+
+## Vakansiya va savollarni o'zgartirish
+
+Hammasi **`vacancies.json`** faylida (botni qayta ishga tushirish shart emas):
+
+- `common_questions` — hamma lavozimlar uchun umumiy savollar (F.I.Sh., yosh, manzil, telefon...)
+- `vacancies[].questions` — lavozimga xos savollar
+- `final_questions` — oxirgi savollar (ish haqi, qachondan, ...)
+- `vacancies[].requirements` — Claude shu talablar bo'yicha baholaydi
+
+Savol formati:
+```json
+{ "id": "car", "section": "3. ҲУДУД ВА ТРАНСПОРТ", "label": "Шахсий транспорт",
+  "text": "Шахсий автомобилингиз борми?", "type": "choice",
+  "options": ["Автомобиль бор", "Йўқ"], "optional": false,
+  "show_if": { "agent_exp": ["Ҳа, агент бўлиб ишлаганман"] } }
+```
+`type`: `text` | `number` | `phone` | `choice`. `show_if` — savol faqat oldingi javob shunday bo'lsa so'raladi.
+Yangi lavozim qo'shish uchun `vacancies` ro'yxatiga yangi element qo'shing.
+
+`anketalar/` papkasida har bir lavozim uchun chop etishga tayyor bo'sh anketa bor (botda admin `/blank` buyrug'i ham beradi).
 
 ## O'rnatish
 
@@ -51,10 +84,10 @@ cp .env.example .env   # va qiymatlarni to'ldiring
 | `MIN_SCORE` | Saralash chegarasi (default `70`) |
 | `CLAUDE_MODEL` | `sonnet` (default), `opus` yoki `haiku` |
 | `ANALYSIS_CONCURRENCY` | Bir vaqtda nechta tahlil (default `1`) |
-| `NOTIFY_REJECTED` | `true` bo'lsa, past ballilar haqida ham qisqa xabar keladi |
+| `NOTIFY_REJECTED` | Past ballilar haqida qisqa xabar (default `true`) |
+| `RETRY_MINUTES` | AI ishlamasa necha daqiqada qayta urinish (default `60`) |
+| `CLAUDE_TIMEOUT_SEC` | Bitta tahlil uchun maksimal kutish (default `180`) |
 
-Vakansiyalar va talablarni **`vacancies.json`** faylida o'zgartiring — Claude aynan shu talablar bo'yicha baholaydi.
-Faylni o'zgartirgach botni qayta ishga tushirish shart emas.
 
 ### 5. Ishga tushirish
 
@@ -78,8 +111,9 @@ docker compose --profile hr-bot up -d --build hr-bot
 | `/stats` | Statistika |
 | `/top` | Eng yuqori ballli 10 nomzod |
 | `/recent` | Oxirgi 10 ariza |
-| `/view_ID` | Nomzod kartasi va rezyumesi |
-| `/retry_ID` | Tahlilni qayta bajarish (xato bo'lsa) |
+| `/view_ID` | Nomzod kartasi, anketasi va fayllari |
+| `/retry_ID` | AI tahlilni qayta bajarish |
+| `/blank` | Barcha lavozimlar uchun bo'sh anketa (DOCX) |
 | `/myid` | Telegram ID'ingizni ko'rish |
 
 ## Ma'lumotlar

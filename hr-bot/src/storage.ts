@@ -3,6 +3,12 @@ import path from "path";
 import { config } from "./config";
 import type { Analysis } from "./claude";
 
+export interface StoredFile {
+  kind: "document" | "photo";
+  fileId: string;
+  name: string; // маҳаллий файл номи (file_1.pdf ...)
+}
+
 export interface CandidateRecord {
   id: string;
   telegramId: number;
@@ -11,11 +17,15 @@ export interface CandidateRecord {
   phone: string;
   vacancyId: string;
   vacancyTitle: string;
-  resumeFile?: string;
+  mode: "form" | "file";
+  answers: Record<string, string>; // анкета жавоблари (савол id → жавоб)
+  files: StoredFile[]; // номзод юборган файллар/расмлар
+  texts: string[]; // матн кўринишида юборилган резюмелар
   createdAt: string;
   status: "pending" | "analyzed" | "error";
   analysis?: Analysis;
   error?: string;
+  attempts?: number; // муваффақиятсиз AI таҳлил уринишлари
 }
 
 const DB_FILE = path.join(config.dataDir, "candidates.json");
