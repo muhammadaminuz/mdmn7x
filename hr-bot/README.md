@@ -104,6 +104,32 @@ npm start
 docker compose --profile hr-bot up -d --build hr-bot
 ```
 
+## Doimiy ishlatish
+
+### A) Windows kompyuterda (bepul)
+`hr-bot\windows\` papkasidagi fayllarni ikki marta bosib ishlatasiz:
+
+| Fayl | Vazifa |
+|---|---|
+| `install-autostart.bat` | Botni fonda (oynasiz) ishga tushiradi va Windows yoqilganda avtomatik ishga tushadigan qiladi. To'xtab qolsa — 10 soniyada o'zi qayta yonadi |
+| `stop-bot.bat` | Botni to'xtatadi |
+| `uninstall-autostart.bat` | To'xtatadi va avtomatik ishga tushishni o'chiradi |
+| `view-log.bat` | Bot logini ko'rsatadi (`data\bot.log`) |
+
+Muhim: kompyuter **uyqu rejimiga o'tmasligi** kerak (Параметры → Система → Питание → Сон: **Никогда**),
+va bir vaqtda faqat **bitta** bot nusxasi ishlashi kerak (VS Code terminalidagi `npm start` ni yoping).
+
+### B) VPS serverda (Ubuntu, 24/7)
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs git
+sudo npm install -g @anthropic-ai/claude-code pm2
+git clone -b claude/telegram-bot-yasash-llrwz7 https://github.com/muhammadaminuz/mdmn7x.git
+cd mdmn7x/hr-bot && nano .env        # .env ni kompyuterdagidek to'ldiring
+npm install && npm run build
+pm2 start dist/index.js --name hr-bot && pm2 save && pm2 startup   # oxirgi buyruq bergan qatorni ham bajaring
+pm2 logs hr-bot                       # loglarni ko'rish
+```
+
 ## Admin buyruqlari
 
 | Buyruq | Vazifa |
