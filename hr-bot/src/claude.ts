@@ -1,4 +1,8 @@
-import { spawn } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+// cross-spawn: Windows'da `claude.cmd` ni ham to'g'ri ishga tushiradi
+import spawn from "cross-spawn";
 import { config, Vacancy } from "./config";
 
 /**
@@ -62,21 +66,25 @@ Nomzod: ${candidate.name}, tel: ${candidate.phone}
     prompt += `\n<rezyume>\n${resume.text.slice(0, 50_000)}\n</rezyume>`;
   }
 
+  // Prompt stdin orqali, system prompt fayl orqali — Windows buyruq qatoridagi
+  // ko'p qatorli matn va qo'shtirnoq muammolarini oldini oladi
+  const systemPromptFile = path.join(os.tmpdir(), "hr-bot-system-prompt.txt");
+  fs.writeFileSync(systemPromptFile, SYSTEM_PROMPT);
+
   const args = [
     "-p",
-    prompt,
     "--output-format",
     "json",
     "--json-schema",
     JSON.stringify(SCHEMA),
-    "--system-prompt",
-    SYSTEM_PROMPT,
+    "--system-prompt-file",
+    systemPromptFile,
     "--model",
     config.model,
     "--no-session-persistence",
     // Faqat fayl o'qish ruxsati — boshqa vositalar (Bash, Web, Edit) o'chirilgan
     "--tools",
-    resume.filePath ? "Read" : "",
+    "Read",
     "--allowedTools",
     "Read",
   ];
@@ -84,7 +92,7 @@ Nomzod: ${candidate.name}, tel: ${candidate.phone}
   const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: config.oauthToken };
   delete env.ANTHROPIC_API_KEY; // API kalit emas, akkaunt tokeni ishlatilishi uchun
 
-  const stdout = await run(config.claudeBin, args, resume.workDir, env, 5 * 60_000);
+  const stdout = await run(config.claudeBin, args, prompt, resume.workDir, env, 5 * 60_000);
   const out = JSON.parse(stdout);
   if (out.is_error || !out.structured_output) {
     throw new Error(`Claude xatosi: ${out.result ?? out.subtype ?? "noma'lum"}`);
@@ -92,14 +100,15 @@ Nomzod: ${candidate.name}, tel: ${candidate.phone}
   return out.structured_output as Analysis;
 }
 
-function run(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string> {
+function run(cmd: string, args: string[], input: string, cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(cmd, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin!.end(input);
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    child.stdout!.on("data", (d) => (stdout += d));
+    child.stderr!.on("data", (d) => (stderr += d));
     child.on("error", (err) => {
       clearTimeout(timer);
       reject(err);
